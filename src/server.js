@@ -35,6 +35,7 @@ app.get('/v/:token', page('parent.html'));
 app.get('/d/:token', page('driver.html'));
 app.get('/login', page('login.html'));
 
+app.get('/healthz', (req, res) => res.send('ok'));
 app.get('/api/config', (req, res) => res.json({
   tileUrl: process.env.TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
   tileAttribution: process.env.TILE_ATTRIBUTION || '&copy; OpenStreetMap katkıcıları',
