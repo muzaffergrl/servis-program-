@@ -4,7 +4,11 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#f5a300">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Servisim">
   <title>Servisim Nerede?</title>
+  <link rel="icon" href="/static/icon.svg">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/static/style.css">
   <style>
@@ -16,15 +20,30 @@
     .eta .label { font-size: 1.05rem; margin-top: 8px; }
     .eta .sub { margin-top: 6px; }
     .eta.ok .big { color: var(--ok); }
-    #map { height: 300px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--line); }
+    .eta.alert { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--card)); }
+    .eta.alert .big, .eta.alert .label { color: var(--danger); }
+    #map { height: 280px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--line); }
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
     .info { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
     .info:last-child { border-bottom: 0; }
     .msgs { list-style: none; padding: 0; margin: 0; }
     .msgs li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; }
     .msgs li:last-child { border-bottom: 0; }
+    .msgs li.urgent { color: var(--danger); font-weight: 600; }
     .msgs time { color: var(--muted); min-width: 44px; }
     .absent { background: #fff4e5; color: #8a4b00; border-color: #f5c27a; }
+    .steps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin: 12px 0; }
+    .step { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: var(--card); }
+    .step b { display: block; font-size: .8rem; color: var(--muted); font-weight: 500; margin-bottom: 4px; }
+    .step.ok { border-color: var(--ok); }
+    .step.bad { border-color: var(--danger); color: var(--danger); }
+    .card + .card { margin-top: 12px; }
+    .notif { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .notif select { width: auto; }
+    details summary { cursor: pointer; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; font-size: .88rem; margin-top: 8px; }
+    td, th { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; }
+    th { color: var(--muted); font-weight: 500; }
     #error { display: none; }
   </style>
 </head>
@@ -46,15 +65,33 @@
       <div class="sub muted small" id="etaSub"></div>
     </div>
 
+    <div class="steps" id="steps"></div>
+
     <div id="map"></div>
 
     <div class="row">
       <a class="btn" id="callBtn" href="#">📞 Şoförü ara</a>
       <button id="absentBtn">🙋 Bugün gelmeyecek</button>
     </div>
-    <button id="notifBtn" style="width:100%; margin-bottom:12px" hidden>🔔 Bildirimleri aç</button>
 
-    <div class="card" style="margin-bottom:12px">
+    <div class="card">
+      <div class="notif">
+        <span>🔔 Servis</span>
+        <select id="notifyMin">
+          <option value="0">haber verme</option>
+          <option value="2">2 dk</option>
+          <option value="3">3 dk</option>
+          <option value="5">5 dk</option>
+          <option value="7">7 dk</option>
+          <option value="10">10 dk</option>
+          <option value="15">15 dk</option>
+        </select>
+        <span>kala haber ver</span>
+      </div>
+      <div id="pushBox" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
       <div class="info"><span class="muted">Servis</span><b id="bus"></b></div>
       <div class="info"><span class="muted">Plaka</span><b id="plate"></b></div>
       <div class="info"><span class="muted">Şoför</span><b id="driver"></b></div>
@@ -63,6 +100,13 @@
     <div class="card">
       <h3>Bugün</h3>
       <ul class="msgs" id="msgs"><li class="muted">Henüz bildirim yok.</li></ul>
+    </div>
+
+    <div class="card">
+      <details id="historyBox">
+        <summary>Geçmiş (son 30 gün)</summary>
+        <div id="history" class="muted small">Yükleniyor…</div>
+      </details>
     </div>
   </div>
 

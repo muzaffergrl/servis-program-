@@ -1,14 +1,17 @@
 // Sayfalar arasında ortak yardımcılar
 const $ = (id) => document.getElementById(id);
 
+const apiHeaders = {}; // yönetim panelinde seçili firma vb.
+
 async function api(method, url, body) {
   const res = await fetch(url, {
     method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
+    headers: { ...apiHeaders, ...(body ? { 'Content-Type': 'application/json' } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || `Hata (${res.status})`);
+  if (res.status === 401 && url.startsWith('/api/admin')) { location.href = '/login'; }
+  if (!res.ok) throw Object.assign(new Error(data.error || `Hata (${res.status})`), { status: res.status, data });
   return data;
 }
 

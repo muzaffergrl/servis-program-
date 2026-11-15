@@ -1,7 +1,9 @@
-// Demo / test için sahte servis: rotayı takip ederek konum gönderir.
-// Mevcut takip programının API'si bağlandığında buna gerek kalmayacak.
+// Demo / test için sahte servis: rotayı takip ederek konum gönderir ve şoför yerine yoklama yapar.
+// Mevcut takip programının API'si bağlandığında konum kısmına gerek kalmayacak.
 import { db } from './db.js';
-import { startTrip, updatePosition, getTrip, HttpError } from './tracker.js';
+import {
+  startTrip, endTrip, updatePosition, getTrip, markAttendance, dropAllAtSchool, boardAllAtSchool, HttpError,
+} from './tracker.js';
 import { pointAt } from './routing.js';
 
 const SPEEDUP = Number(process.env.SIM_SPEEDUP || 8); // gerçek zamandan kaç kat hızlı
@@ -21,6 +23,7 @@ export async function simulate(busId, type) {
   stopSimulation(busId);
   const bus = db.prepare('SELECT * FROM buses WHERE id = ?').get(busId);
   if (!bus) throw new HttpError(404, 'Servis bulunamadı');
+  if (getTrip(busId)) endTrip(busId, { force: true });
 
   if (type === 'morning') {
     // Servisi ilk öğrencinin ~1 km uzağından başlat
@@ -31,19 +34,34 @@ export async function simulate(busId, type) {
     if (school) await updatePosition(busId, school.lat, school.lng);
   }
   await startTrip(busId, type);
+  if (type === 'afternoon') await boardAllAtSchool(busId);
 
   let route = null;
   let t = 0;
   let pause = 0;
   let pending = [];
   let busy = false;
+  const handled = new Set();
 
   const timer = setInterval(async () => {
     if (busy) return;
     busy = true;
     try {
       const trip = getTrip(busId);
-      if (!trip || trip.finishedAt) return stopSimulation(busId);
+      if (!trip || trip.closedAt) return stopSimulation(busId);
+
+      // Şoförün yapacağı yoklamayı taklit et
+      for (const s of trip.stops) {
+        if (!s.done || handled.has(s)) continue;
+        handled.add(s);
+        if (s.kind === 'school') await dropAllAtSchool(busId);
+        else if (type === 'morning') {
+          // Demo için: ara sıra bir öğrenci binmez
+          await markAttendance(busId, s.studentId, Math.random() < 0.1 ? 'absent' : 'boarded');
+        } else await markAttendance(busId, s.studentId, 'dropped');
+      }
+      if (trip.finishedAt) { endTrip(busId, { force: true }); return stopSimulation(busId); }
+
       if (trip.route !== route) {
         // Rota yeniden hesaplandıysa baştan takip et
         route = trip.route;

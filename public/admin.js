@@ -1,4 +1,5 @@
 let S = { schools: [], buses: [], students: [] };
+let me = null, companyId = null;
 let liveMap, pickMap, schoolMap, pickMarker, schoolPickMarker;
 const busMarkers = new Map();
 const origin = location.origin;
@@ -20,12 +21,20 @@ async function copy(text) {
   catch { prompt('Kopyalayın:', text); }
 }
 
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* gizli sekme */ } },
+};
+
 // --- Sekmeler ------------------------------------------------------------
-document.querySelectorAll('nav button').forEach((b) => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x === b));
-  document.querySelectorAll('section').forEach((s) => s.classList.toggle('active', s.id === `tab-${b.dataset.tab}`));
+function showTab(name) {
+  document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
+  document.querySelectorAll('section').forEach((s) => s.classList.toggle('active', s.id === `tab-${name}`));
   setTimeout(() => [liveMap, pickMap, schoolMap].forEach((m) => m?.invalidateSize()), 50);
-});
+  if (name === 'attendance') loadAttendance();
+  if (name === 'companies') loadCompanies();
+}
+document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 
 // --- Çizim ---------------------------------------------------------------
 function render() {
@@ -41,26 +50,40 @@ function renderSelects() {
   const busOpts = '<option value="">—</option>' + S.buses.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
   document.querySelectorAll('.schoolSelect').forEach((el) => { const v = el.value; el.innerHTML = schoolOpts; el.value = v; });
   document.querySelectorAll('.busSelect').forEach((el) => { const v = el.value; el.innerHTML = busOpts; el.value = v; });
-  const f = $('studentFilter');
-  const fv = f.value;
-  f.innerHTML = '<option value="">Tümü</option>' + S.buses.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
-  f.value = fv;
+  for (const f of [$('studentFilter'), $('attBus')]) {
+    const fv = f.value;
+    f.innerHTML = '<option value="">Tümü</option>' + S.buses.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
+    f.value = fv;
+  }
 }
 
 function renderLive() {
   $('liveList').innerHTML = S.buses.map((b) => {
     const t = b.live.trip;
-    const active = t && !t.finishedAt;
-    const status = active
-      ? `<span class="dot ok"></span> ${t.type === 'morning' ? 'Sabah turu' : 'Akşam turu'}${b.simulating ? ' (simülasyon)' : ''}`
-      : t?.finishedAt ? `<span class="dot"></span> Tur bitti ${fmtTime(t.finishedAt)}` : '<span class="dot"></span> Beklemede';
-    const stops = active ? `<ol>${t.stops.map((s) => `<li class="${s.done ? 'done' : ''}">${escapeHtml(s.name)} — ${s.done ? fmtTime(s.doneAt) : fmtMin(s.etaSec) + ' dk'}</li>`).join('')}</ol>` : '';
-    const stale = active && b.live.pos?.stale ? '<div class="small" style="color:var(--warn)">⚠️ Konum 2 dakikadır gelmiyor</div>' : '';
+    const open = t && !t.closedAt;
+    const status = open
+      ? `<span class="dot ok"></span> ${t.type === 'morning' ? 'Sabah turu' : 'Akşam turu'}${t.finishedAt ? ' (duraklar bitti)' : ''}${b.simulating ? ' · simülasyon' : ''}`
+      : t?.closedAt ? `<span class="dot"></span> Tur bitti ${fmtTime(t.closedAt)}` : '<span class="dot"></span> Beklemede';
+    const riders = new Map((t?.riders || []).map((r) => [r.studentId, r]));
+    const att = (s) => {
+      const r = riders.get(s.studentId);
+      if (!r) return '';
+      if (r.absentAt) return ' <span class="bad">binmedi</span>';
+      if (r.droppedAt) return ' <span class="ok">indi</span>';
+      if (r.boardedAt) return ' <span class="ok">bindi</span>';
+      return '';
+    };
+    const stops = open && !t.finishedAt
+      ? `<ol>${t.stops.map((s) => `<li class="${s.done ? 'done' : ''}">${escapeHtml(s.name)} — ${s.done ? fmtTime(s.doneAt) : fmtMin(s.etaSec) + ' dk'}${att(s)}</li>`).join('')}</ol>`
+      : '';
+    const alarm = open && t.finishedAt && t.onBoard.length
+      ? `<div class="alarm">⚠️ İnişi işaretlenmemiş: ${t.onBoard.map(escapeHtml).join(', ')}</div>` : '';
+    const stale = open && !t.finishedAt && b.live.pos?.stale ? '<div class="small" style="color:var(--warn)">⚠️ Konum 2 dakikadır gelmiyor</div>' : '';
     return `<div class="card bus-card">
       <b>${escapeHtml(b.name)}</b> <span class="muted small">${escapeHtml(b.plate || '')}</span>
-      <div class="small">${status}</div>${stale}${stops}
+      <div class="small">${status}</div>${alarm}${stale}${stops}
       <div class="btns" style="margin-top:8px">
-        ${active
+        ${open
           ? `<button data-act="end" data-id="${b.id}">Turu bitir</button>`
           : `<button data-act="sim" data-type="morning" data-id="${b.id}">▶ Sabah simülasyonu</button>
              <button data-act="sim" data-type="afternoon" data-id="${b.id}">▶ Akşam simülasyonu</button>`}
@@ -120,13 +143,55 @@ function renderSchools() {
       <button data-act="delSchool" data-id="${s.id}" class="danger">Sil</button></td></tr>`).join('');
 }
 
+// --- Yoklama raporu -------------------------------------------------------
+async function loadAttendance() {
+  if (!companyId) return;
+  const date = $('attDate').value;
+  const data = await api('GET', `/api/admin/attendance?date=${encodeURIComponent(date)}`);
+  const bus = Number($('attBus').value) || null;
+  const isToday = data.date === new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+  const cell = (t, parentAbsent) => {
+    if (t.absent) return '<span class="bad">Binmedi</span>';
+    if (t.boarded && !t.dropped) {
+      // Bugün tur sürüyor olabilir; geçmiş günlerde inişin işaretlenmemesi hatadır
+      return isToday ? `<span style="color:var(--warn)">${fmtTime(t.boarded)} → araçta</span>` : `<span class="bad">${fmtTime(t.boarded)} → iniş işaretlenmemiş</span>`;
+    }
+    if (t.boarded) return `<span class="ok">${fmtTime(t.boarded)} → ${fmtTime(t.dropped)}</span>`;
+    return parentAbsent ? '<span class="muted">Veli: gelmeyecek</span>' : '<span class="muted">–</span>';
+  };
+  const rows = data.students.filter((s) => !bus || s.bus_id === bus);
+  $('attTable').innerHTML = `<tr><th>Öğrenci</th><th>Servis</th><th>Sabah (bindi → indi)</th><th>Akşam (bindi → indi)</th></tr>` +
+    (rows.map((s) => `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(busName(s.bus_id))}</td>
+      <td>${cell(s.morning, s.parentAbsent)}</td><td>${cell(s.afternoon, s.parentAbsent)}</td></tr>`).join('')
+      || '<tr><td colspan="4" class="muted">Kayıt yok</td></tr>');
+}
+$('attDate').onchange = loadAttendance;
+$('attBus').onchange = loadAttendance;
+
+// --- Firmalar (süper yönetici) ------------------------------------------
+async function loadCompanies() {
+  if (!me?.user.isSuper) return;
+  const list = await api('GET', '/api/admin/companies');
+  $('companyTable').innerHTML = `<tr><th>Firma</th><th>Kullanıcı</th><th>Servis</th><th>Öğrenci</th><th>Durum</th><th></th></tr>` +
+    list.map((c) => `<tr>
+      <td>${escapeHtml(c.name)}<div class="muted small">${escapeHtml(c.phone || '')}</div></td>
+      <td>${escapeHtml(c.usernames || '')}</td><td>${c.bus_count}</td><td>${c.student_count}</td>
+      <td>${c.active ? '<span class="ok">Aktif</span>' : '<span class="bad">Pasif</span>'}</td>
+      <td class="btns">
+        <button data-act="openCompany" data-id="${c.id}">Paneline geç</button>
+        <button data-act="editCompany" data-id="${c.id}">Düzenle</button>
+        <button data-act="delCompany" data-id="${c.id}" class="danger">Sil</button>
+      </td></tr>`).join('');
+  loadCompanies.list = list;
+}
+
 // --- Formlar -------------------------------------------------------------
 function fillForm(form, obj) {
   for (const el of form.elements) if (el.name) el.value = obj[el.name] ?? '';
 }
 const formData = (form) => Object.fromEntries(new FormData(form));
 
-function setupForm(formId, url, titleEl, newTitle, onReset) {
+function setupForm(formId, url, titleEl, newTitle, onReset, after = load) {
   const form = $(formId);
   form.onsubmit = async (e) => {
     e.preventDefault();
@@ -136,7 +201,7 @@ function setupForm(formId, url, titleEl, newTitle, onReset) {
       else await api('POST', url, data);
       toast('Kaydedildi');
       form.querySelector('[data-reset]').click();
-      await load();
+      await after();
     } catch (err) { toast(err.message); }
   };
   form.querySelector('[data-reset]').onclick = () => { form.reset(); form.elements.id.value = ''; $(titleEl).textContent = newTitle; onReset?.(); };
@@ -145,6 +210,10 @@ function setupForm(formId, url, titleEl, newTitle, onReset) {
 const busForm = setupForm('busForm', '/api/admin/buses', 'busFormTitle', 'Yeni servis');
 const studentForm = setupForm('studentForm', '/api/admin/students', 'studentFormTitle', 'Yeni öğrenci', () => { pickMarker?.remove(); pickMarker = null; });
 const schoolForm = setupForm('schoolForm', '/api/admin/schools', 'schoolFormTitle', 'Yeni okul', () => { schoolPickMarker?.remove(); schoolPickMarker = null; });
+const companyForm = setupForm('companyForm', '/api/admin/companies', 'companyFormTitle', 'Yeni firma', () => {
+  companyForm.elements.username.disabled = false;
+  $('companyHint').textContent = 'Firma, bu kullanıcı adı ve şifreyle /login adresinden kendi paneline girer.';
+}, async () => { await loadCompanies(); await loadMe(); });
 
 function setPick(map, form, markerRef, lat, lng, emoji) {
   form.elements.lat.value = lat.toFixed(6);
@@ -169,7 +238,12 @@ document.body.addEventListener('click', async (e) => {
         await api('POST', `/api/admin/buses/${id}/simulate`, { type: btn.dataset.type });
         break;
       case 'end':
-        await api('DELETE', `/api/admin/buses/${id}/trip`);
+        try { await api('DELETE', `/api/admin/buses/${id}/trip`); }
+        catch (err) {
+          if (err.status !== 409) throw err;
+          if (!confirm(`⚠️ ${err.message}\n\nYine de bitirilsin mi?`)) return;
+          await api('DELETE', `/api/admin/buses/${id}/trip?force=1`);
+        }
         break;
       case 'editBus':
         fillForm(busForm, bus); $('busFormTitle').textContent = 'Servisi düzenle';
@@ -205,6 +279,26 @@ document.body.addEventListener('click', async (e) => {
         if (!confirm(`${school.name} silinsin mi?`)) return;
         await api('DELETE', `/api/admin/schools/${id}`);
         break;
+      case 'openCompany':
+        store.set('companyId', String(id));
+        location.reload();
+        return;
+      case 'editCompany': {
+        const c = loadCompanies.list.find((x) => x.id === id);
+        fillForm(companyForm, { ...c, active: c.active ? '1' : '0', username: c.usernames, password: '' });
+        companyForm.elements.username.disabled = true;
+        $('companyHint').textContent = 'Şifre alanını boş bırakırsanız şifre değişmez.';
+        $('companyFormTitle').textContent = 'Firmayı düzenle';
+        return;
+      }
+      case 'delCompany': {
+        const c = loadCompanies.list.find((x) => x.id === id);
+        if (prompt(`"${c.name}" firması ve TÜM servis, öğrenci, yoklama kayıtları silinecek. Onaylamak için firma adını yazın:`) !== c.name) return;
+        await api('DELETE', `/api/admin/companies/${id}`);
+        if (String(id) === store.get('companyId')) { store.set('companyId', ''); location.reload(); return; }
+        await loadCompanies(); await loadMe();
+        return;
+      }
     }
     await load();
   } catch (err) { toast(err.message); }
@@ -212,13 +306,49 @@ document.body.addEventListener('click', async (e) => {
 
 $('studentFilter').onchange = renderStudents;
 
+$('logoutBtn').onclick = async () => { await api('POST', '/api/logout'); location.href = '/login'; };
+$('pwBtn').onclick = async () => {
+  const current = prompt('Mevcut şifreniz:');
+  if (!current) return;
+  const password = prompt('Yeni şifre (en az 6 karakter):');
+  if (!password) return;
+  try { await api('POST', '/api/admin/password', { current, password }); toast('Şifre değiştirildi'); }
+  catch (e) { toast(e.message); }
+};
+
 // --- Başlangıç -----------------------------------------------------------
 async function load() {
+  if (!companyId) return;
   S = await api('GET', '/api/admin/state');
   render();
 }
 
+async function loadMe() {
+  me = await api('GET', '/api/admin/me');
+  $('who').textContent = me.user.isSuper ? `${me.user.username} (süper yönetici)` : me.user.companyName || me.user.username;
+  if (me.user.isSuper) {
+    $('companiesTab').hidden = false;
+    const sel = $('companySelect');
+    sel.hidden = false;
+    const saved = Number(store.get('companyId')) || null;
+    companyId = me.companies.some((c) => c.id === saved) ? saved : null;
+    sel.innerHTML = '<option value="">— Firma seçin —</option>' + me.companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}${c.active ? '' : ' (pasif)'}</option>`).join('');
+    sel.value = companyId ?? '';
+    sel.onchange = () => { store.set('companyId', sel.value); location.reload(); };
+    if (companyId) apiHeaders['X-Company-Id'] = String(companyId);
+  } else {
+    companyId = true; // firma kullanıcısı: sunucu kendi firmasını kullanır
+  }
+}
+
 (async () => {
+  $('attDate').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+  await loadMe();
+  if (!companyId) {
+    $('noCompany').style.display = 'block';
+    showTab('companies');
+    return;
+  }
   await load();
   const center = S.schools[0] ? [S.schools[0].lat, S.schools[0].lng] : [41.0255, 29.096];
   [liveMap, pickMap, schoolMap] = await Promise.all([makeMap('liveMap', center, 13), makeMap('pickMap', center, 13), makeMap('schoolMap', center, 13)]);
@@ -226,5 +356,6 @@ async function load() {
   pickMap.on('click', (e) => { pickMarker = setPick(pickMap, studentForm, () => pickMarker, e.latlng.lat, e.latlng.lng, '🏠'); });
   schoolMap.on('click', (e) => { schoolPickMarker = setPick(schoolMap, schoolForm, () => schoolPickMarker, e.latlng.lat, e.latlng.lng, '🏫'); });
   renderLive();
-  liveStream('/api/admin/stream', { state: (st) => { S = st; renderLive(); } });
+  const q = me.user.isSuper ? `?company=${companyId}` : '';
+  liveStream(`/api/admin/stream${q}`, { state: (st) => { S = st; renderLive(); } });
 })();

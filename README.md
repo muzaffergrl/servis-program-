@@ -7,9 +7,10 @@ telefondan takip edebildiği sistem.
 
 | Ekran | Adres | Kim kullanır |
 |---|---|---|
-| Veli ekranı | `/v/<veli-linki>` | Veli: kalan dakika, harita, bildirimler, "bugün gelmeyecek" |
-| Şoför ekranı | `/d/<şoför-linki>` | Şoför: tur başlat/bitir, telefondan konum gönderir |
-| Yönetim | `/admin` | Firma: servis, öğrenci, okul tanımları, canlı harita, linkleri WhatsApp ile gönderme |
+| Veli ekranı | `/v/<veli-linki>` | Veli: kalan dakika, harita, bindi/indi durumu, telefon bildirimi, "bugün gelmeyecek", 30 günlük geçmiş |
+| Şoför ekranı | `/d/<şoför-linki>` | Şoför: tur başlat/bitir, yoklama (bindi / binmedi / indi), telefondan konum |
+| Firma paneli | `/admin` | Servis firması: servis, öğrenci, okul, canlı harita, yoklama raporu, linkleri WhatsApp ile gönderme |
+| Süper yönetici | `/admin` | Biz: firmaları ekleme, pasife alma, istediği firmanın paneline geçme |
 
 Her veliye kendi çocuğuna özel tahmin edilemez bir link verilir. Uygulama indirmek gerekmez.
 Link başkasına geçerse yönetimden "Linki yenile" ile eskisi iptal edilir.
@@ -23,9 +24,12 @@ npm install
 npm run demo        # demo verisi (1 okul, 2 servis, 10 öğrenci) ekler ve başlatır
 ```
 
-`http://localhost:3000/admin` (kullanıcı `admin`, şifre `ADMIN_PASSWORD`) →
-Canlı sekmesinde "Sabah simülasyonu" ile sahte bir servis yürütülür; Öğrenciler sekmesinden
-"Aç" ile veli ekranını görebilirsiniz.
+`http://localhost:3000/login`:
+- Firma girişi: `demo` / `demo123`
+- Süper yönetici: `admin` / `ADMIN_PASSWORD`
+
+Canlı sekmesinde "Sabah simülasyonu" ile sahte bir servis yürütülür (yoklamayı da simülatör yapar);
+Öğrenciler sekmesinden "Aç" ile veli ekranını görebilirsiniz.
 
 ```bash
 npm test            # internet gerektirmez
@@ -36,14 +40,15 @@ npm test            # internet gerektirmez
 | Değişken | Varsayılan | Açıklama |
 |---|---|---|
 | `PORT` | 3000 | |
-| `ADMIN_USER` / `ADMIN_PASSWORD` | admin / admin | **Canlıda mutlaka değiştirin** |
+| `ADMIN_USER` / `ADMIN_PASSWORD` | admin / admin | Süper yönetici. **Canlıda mutlaka değiştirin** |
+| `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | otomatik | Telefon bildirimi anahtarları. Verilmezse ilk açılışta üretilip veritabanında saklanır |
+| `VAPID_SUBJECT` | mailto:destek@example.com | Bildirim servislerine bildirilen iletişim adresi |
 | `DB_FILE` | `data/servis.db` | SQLite dosyası |
 | `ROUTING` | `osrm` | `osrm` (yol ağına göre) veya `simple` (kuş uçuşu × 1.35) |
 | `OSRM_URL` | `https://router.project-osrm.org` | Ücretsiz demo sunucu; kalıcı kullanımda kendi OSRM sunucumuz önerilir |
 | `TILE_URL` | OpenStreetMap | Harita görselleri |
 | `STOP_DWELL_SEC` | 45 | Her durakta ortalama bekleme |
 | `ARRIVE_RADIUS_M` | 60 | Durağa varıldı sayılma mesafesi |
-| `NEAR_NOTIFY_MIN` | 5 | "Servis X dk sonra evinizde" bildirimi |
 | `SIM_SPEEDUP` | 8 | Simülatör hız çarpanı |
 | `EXTERNAL_API_URL` / `EXTERNAL_API_KEY` / `EXTERNAL_POLL_SEC` | – | Mevcut takip programının API'si |
 
@@ -58,6 +63,25 @@ npm test            # internet gerektirmez
 5. "Bugün gelmeyecek" denirse o ev turdan çıkarılır, diğer velilerin süresi kısalır.
 
 Harita servisine sürekli istek atılmadığı için ücretsiz servisler yeterli.
+
+## Yoklama ve güvenlik
+
+- **Sabah:** şoför her evde "Bindi" / "Binmedi" der → veliye anında bildirim. Okulda
+  "Okula vardık – herkes indi" ile binen herkesin inişi kaydedilir.
+- **Akşam:** okulda "Bindi" / "Binmedi" (veya "Kalan herkes bindi"). Okul çıkışı binmeyen
+  öğrencinin velisine **acil bildirim** gider ve o eve uğranmaz. Her evde "İndi".
+- **Çocuk unutma kontrolü:** binen ama inişi işaretlenmeyen öğrenci varsa tur bitirilemez
+  (şoför "aracı kontrol ettim" diye onaylamadıkça) ve yeni tur başlatılamaz; firma panelinde
+  kırmızı uyarı çıkar.
+- Yanlış dokunuş "geri al" ile düzeltilir. Tüm kayıtlar `attendance` tablosunda saklanır.
+
+## Telefon bildirimleri
+
+Veli ekranında "Telefonuma bildirim gelsin" → telefon kilitliyken de bildirim gelir (web push).
+- Android / bilgisayar: Chrome, Edge, Firefox doğrudan çalışır.
+- iPhone (iOS 16.4+): önce Safari'de **Paylaş → Ana Ekrana Ekle**, sonra ana ekrandaki simgeden açıp izin verilir.
+- **HTTPS zorunlu** (localhost hariç).
+- Veli "servis kaç dk kala haber versin" süresini kendisi seçer (kapatabilir de).
 
 ## Konum kaynakları
 
@@ -77,7 +101,8 @@ Harita servisine sürekli istek atılmadığı için ücretsiz servisler yeterli
 ## Yapılacaklar
 
 - [ ] Mevcut takip programının API'sini bağlamak
-- [ ] Gerçek push bildirimi (Web Push / uygulama): şu an bildirimler sayfa açıkken geliyor
-- [ ] Firma bazlı ayrım (her servisçi kendi panelini görsün) – çok müşteriye satış için
+- [ ] Zamanla öğrenen süre tahmini ("servis genelde 07:42'de gelir")
+- [ ] Ücret takibi, belge hatırlatma, toplu duyuru
+- [ ] Kardeşleri tek linkte gösterme, günlere göre farklı adres
 - [ ] Trafik verisi (ücretli harita servisi) gerekirse
 - [ ] Sunucuya kurulum (HTTPS zorunlu: tarayıcı konum ve bildirim izni için)

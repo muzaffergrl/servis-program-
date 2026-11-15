@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Servis Takip Yönetim</title>
+  <link rel="icon" href="/static/icon.svg">
   <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/static/style.css">
   <style>
@@ -27,23 +28,48 @@
     .bus-card li.done { color: var(--muted); text-decoration: line-through; }
     .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
-    .toolbar select { width: auto; }
+    .toolbar select, .toolbar input { width: auto; }
+    .topbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .topbar .user { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .topbar select { width: auto; }
+    .alarm { background: var(--danger); color: #fff; border-radius: 10px; padding: 8px 10px; font-weight: 600; margin-top: 6px; font-size: .9rem; }
+    .ok { color: var(--ok); } .bad { color: var(--danger); font-weight: 600; }
+    #noCompany { display: none; }
   </style>
 </head>
 <body>
-  <h1>🚌 Servis Takip</h1>
+  <div class="topbar">
+    <h1>🚌 Servis Takip</h1>
+    <div class="user">
+      <select id="companySelect" hidden></select>
+      <span class="muted small" id="who"></span>
+      <button id="pwBtn">Şifre</button>
+      <button id="logoutBtn">Çıkış</button>
+    </div>
+  </div>
   <nav>
     <button data-tab="live" class="active">Canlı</button>
+    <button data-tab="attendance">Yoklama</button>
     <button data-tab="buses">Servisler</button>
     <button data-tab="students">Öğrenciler</button>
     <button data-tab="schools">Okullar</button>
+    <button data-tab="companies" id="companiesTab" hidden>Firmalar</button>
   </nav>
+  <div class="card" id="noCompany">Devam etmek için sağ üstten bir firma seçin ya da <b>Firmalar</b> sekmesinden yeni firma ekleyin.</div>
 
   <section id="tab-live" class="active">
     <div class="grid">
       <div id="liveMap"></div>
       <div id="liveList"></div>
     </div>
+  </section>
+
+  <section id="tab-attendance">
+    <div class="toolbar">
+      <span>Tarih:</span><input type="date" id="attDate">
+      <span>Servis:</span><select id="attBus"></select>
+    </div>
+    <div class="card table-wrap"><table id="attTable"></table></div>
   </section>
 
   <section id="tab-buses">
@@ -111,6 +137,25 @@
           <label>Enlem<input name="lat" readonly required></label>
           <label>Boylam<input name="lng" readonly required></label>
         </div>
+        <div class="btns"><button class="primary">Kaydet</button><button type="button" data-reset>Temizle</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="tab-companies">
+    <div class="grid">
+      <div class="card table-wrap"><table id="companyTable"></table></div>
+      <form class="card" id="companyForm">
+        <h3 id="companyFormTitle">Yeni firma</h3>
+        <input type="hidden" name="id">
+        <label>Firma adı<input name="name" required></label>
+        <label>Telefon<input name="phone" type="tel"></label>
+        <div class="two">
+          <label>Kullanıcı adı<input name="username" autocapitalize="none"></label>
+          <label>Şifre<input name="password" type="text" placeholder="en az 6 karakter"></label>
+        </div>
+        <label><select name="active"><option value="1">Aktif</option><option value="0">Pasif (giriş yapamaz)</option></select></label>
+        <p class="muted small" id="companyHint">Firma, bu kullanıcı adı ve şifreyle /login adresinden kendi paneline girer.</p>
         <div class="btns"><button class="primary">Kaydet</button><button type="button" data-reset>Temizle</button></div>
       </form>
     </div>

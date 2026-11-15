@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Servis Takip Giriş</title>
+  <link rel="icon" href="/static/icon.svg">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+    form { width: 100%; max-width: 360px; }
+    h1 { text-align: center; margin-bottom: 16px; }
+    button { width: 100%; margin-top: 4px; }
+    #err { color: var(--danger); min-height: 1.2em; margin: 8px 0 0; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <form class="card" id="f">
+    <h1>🚌 Servis Takip</h1>
+    <label>Kullanıcı adı<input name="username" autocomplete="username" autocapitalize="none" required autofocus></label>
+    <label>Şifre<input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="primary">Giriş yap</button>
+    <p id="err"></p>
+  </form>
+  <script src="/static/common.js"></script>
+  <script>
+    $('f').onsubmit = async (e) => {
+      e.preventDefault();
+      $('err').textContent = '';
+      try {
+        await api('POST', '/api/login', Object.fromEntries(new FormData(e.target)));
+        location.href = '/admin';
+      } catch (err) { $('err').textContent = err.message; }
+    };
+  </script>
+</body>
+</html>
