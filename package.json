@@ -1,0 +1,20 @@
+{
+  "name": "servis-takip",
+  "version": "0.1.0",
+  "description": "Okul servisi veli takip sistemi - servisin eve ve okula kaç dakikada varacağını gösterir",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "seed": "node src/seed.js",
+    "demo": "node src/seed.js && node src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "leaflet": "^1.9.4"
+  }
+}

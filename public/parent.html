@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5a300">
+  <title>Servisim Nerede?</title>
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { max-width: 560px; margin: 0 auto; padding: 12px 12px 32px; }
+    header { display: flex; justify-content: space-between; align-items: center; padding: 4px 4px 12px; }
+    .eta { text-align: center; padding: 22px 16px; }
+    .eta .big { font-size: 3.4rem; font-weight: 800; line-height: 1; }
+    .eta .big small { font-size: 1.2rem; font-weight: 600; }
+    .eta .label { font-size: 1.05rem; margin-top: 8px; }
+    .eta .sub { margin-top: 6px; }
+    .eta.ok .big { color: var(--ok); }
+    #map { height: 300px; border-radius: var(--radius); margin: 12px 0; border: 1px solid var(--line); }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+    .info { display: flex; justify-content: space-between; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .info:last-child { border-bottom: 0; }
+    .msgs { list-style: none; padding: 0; margin: 0; }
+    .msgs li { padding: 8px 0; border-bottom: 1px solid var(--line); display: flex; gap: 10px; }
+    .msgs li:last-child { border-bottom: 0; }
+    .msgs time { color: var(--muted); min-width: 44px; }
+    .absent { background: #fff4e5; color: #8a4b00; border-color: #f5c27a; }
+    #error { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h2 id="student">Yükleniyor…</h2>
+      <div class="muted small" id="busName"></div>
+    </div>
+    <span class="small muted" id="live"><span class="dot"></span> bağlanıyor</span>
+  </header>
+
+  <div class="card" id="error"></div>
+
+  <div id="content" hidden>
+    <div class="card eta" id="eta">
+      <div class="big" id="etaBig">–</div>
+      <div class="label" id="etaLabel"></div>
+      <div class="sub muted small" id="etaSub"></div>
+    </div>
+
+    <div id="map"></div>
+
+    <div class="row">
+      <a class="btn" id="callBtn" href="#">📞 Şoförü ara</a>
+      <button id="absentBtn">🙋 Bugün gelmeyecek</button>
+    </div>
+    <button id="notifBtn" style="width:100%; margin-bottom:12px" hidden>🔔 Bildirimleri aç</button>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="info"><span class="muted">Servis</span><b id="bus"></b></div>
+      <div class="info"><span class="muted">Plaka</span><b id="plate"></b></div>
+      <div class="info"><span class="muted">Şoför</span><b id="driver"></b></div>
+    </div>
+
+    <div class="card">
+      <h3>Bugün</h3>
+      <ul class="msgs" id="msgs"><li class="muted">Henüz bildirim yok.</li></ul>
+    </div>
+  </div>
+
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/static/common.js"></script>
+  <script src="/static/parent.js"></script>
+</body>
+</html>

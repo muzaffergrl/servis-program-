@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Servis Takip Yönetim</title>
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/static/style.css">
+  <style>
+    body { padding: 16px; max-width: 1200px; margin: 0 auto; }
+    nav { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px; }
+    nav button.active { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+    section { display: none; }
+    section.active { display: block; }
+    .grid { display: grid; grid-template-columns: 1fr 360px; gap: 16px; }
+    @media (max-width: 860px) { .grid { grid-template-columns: 1fr; } }
+    #liveMap, #pickMap, #schoolMap { height: 480px; border-radius: var(--radius); border: 1px solid var(--line); }
+    #pickMap, #schoolMap { height: 260px; margin-bottom: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--muted); font-weight: 500; }
+    .table-wrap { overflow-x: auto; }
+    .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+    .btns button, .btns a { padding: 6px 10px; font-size: .85rem; }
+    .bus-card { margin-bottom: 12px; }
+    .bus-card ol { margin: 8px 0 0; padding-left: 20px; }
+    .bus-card li.done { color: var(--muted); text-decoration: line-through; }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+    .toolbar select { width: auto; }
+  </style>
+</head>
+<body>
+  <h1>🚌 Servis Takip</h1>
+  <nav>
+    <button data-tab="live" class="active">Canlı</button>
+    <button data-tab="buses">Servisler</button>
+    <button data-tab="students">Öğrenciler</button>
+    <button data-tab="schools">Okullar</button>
+  </nav>
+
+  <section id="tab-live" class="active">
+    <div class="grid">
+      <div id="liveMap"></div>
+      <div id="liveList"></div>
+    </div>
+  </section>
+
+  <section id="tab-buses">
+    <div class="grid">
+      <div class="card table-wrap"><table id="busTable"></table></div>
+      <form class="card" id="busForm">
+        <h3 id="busFormTitle">Yeni servis</h3>
+        <input type="hidden" name="id">
+        <label>Servis adı<input name="name" required></label>
+        <div class="two">
+          <label>Plaka<input name="plate"></label>
+          <label>Okul<select name="school_id" class="schoolSelect"></select></label>
+        </div>
+        <div class="two">
+          <label>Şoför<input name="driver_name"></label>
+          <label>Şoför telefonu<input name="driver_phone" type="tel"></label>
+        </div>
+        <label>Takip programındaki araç no (API için)<input name="external_id"></label>
+        <div class="btns"><button class="primary">Kaydet</button><button type="button" data-reset>Temizle</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="tab-students">
+    <div class="toolbar">
+      <span>Servis:</span>
+      <select id="studentFilter"></select>
+    </div>
+    <div class="grid">
+      <div class="card table-wrap"><table id="studentTable"></table></div>
+      <form class="card" id="studentForm">
+        <h3 id="studentFormTitle">Yeni öğrenci</h3>
+        <input type="hidden" name="id">
+        <label>Öğrenci adı<input name="name" required></label>
+        <div class="two">
+          <label>Servis<select name="bus_id" class="busSelect"></select></label>
+          <label>Alınma sırası<input name="stop_order" type="number" min="0"></label>
+        </div>
+        <div class="two">
+          <label>Veli adı<input name="parent_name"></label>
+          <label>Veli telefonu<input name="parent_phone" type="tel" placeholder="05xx..."></label>
+        </div>
+        <label>Adres<input name="address"></label>
+        <p class="muted small">Ev konumunu seçmek için haritaya tıklayın.</p>
+        <div id="pickMap"></div>
+        <div class="two">
+          <label>Enlem<input name="lat" readonly></label>
+          <label>Boylam<input name="lng" readonly></label>
+        </div>
+        <div class="btns"><button class="primary">Kaydet</button><button type="button" data-reset>Temizle</button></div>
+      </form>
+    </div>
+  </section>
+
+  <section id="tab-schools">
+    <div class="grid">
+      <div class="card table-wrap"><table id="schoolTable"></table></div>
+      <form class="card" id="schoolForm">
+        <h3 id="schoolFormTitle">Yeni okul</h3>
+        <input type="hidden" name="id">
+        <label>Okul adı<input name="name" required></label>
+        <p class="muted small">Okul kapısını seçmek için haritaya tıklayın.</p>
+        <div id="schoolMap"></div>
+        <div class="two">
+          <label>Enlem<input name="lat" readonly required></label>
+          <label>Boylam<input name="lng" readonly required></label>
+        </div>
+        <div class="btns"><button class="primary">Kaydet</button><button type="button" data-reset>Temizle</button></div>
+      </form>
+    </div>
+  </section>
+
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script src="/static/common.js"></script>
+  <script src="/static/admin.js"></script>
+</body>
+</html>
