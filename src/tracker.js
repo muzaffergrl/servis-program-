@@ -1,13 +1,15 @@
 // Canlı servis durumu: konum, sefer, duraklar, yoklama, varış süreleri ve veli bildirimleri.
 import { EventEmitter } from 'node:events';
 import { db, today } from './db.js';
-import { planRoute, projectOnRoute, haversine } from './routing.js';
+import { planRoute, projectOnRoute, haversine, MODE as ROUTING_MODE } from './routing.js';
 import { pushToStudent } from './push.js';
 
 const DWELL = Number(process.env.STOP_DWELL_SEC || 45); // her durakta ortalama bekleme (sn)
 const ARRIVE_RADIUS = Number(process.env.ARRIVE_RADIUS_M || 60); // durağa varıldı sayılma mesafesi
 const OFF_ROUTE_M = 250; // bu kadar sapma olursa rota yeniden hesaplanır
 const STALE_MS = 2 * 60 * 1000; // konum bu kadar eskiyse "güncel değil"
+// Google kullanılıyorsa tur sırasında rota bu aralıkla güncel trafiğe göre yenilenir (maliyeti belirler)
+const REFRESH_MS = Number(process.env.ROUTE_REFRESH_SEC || 180) * 1000;
 
 export class HttpError extends Error {
   constructor(status, message, extra) { super(message); this.status = status; this.extra = extra; }
@@ -107,18 +109,29 @@ export function endTrip(busId, { force = false } = {}) {
   events.emit('update', busId);
 }
 
-async function replan(busId) {
+/**
+ * Kalan duraklar için rotayı (yeniden) hesaplar. Aynı anda tek hesap yapılır;
+ * hesap sürerken yeni istek gelirse bittiğinde bir kez daha hesaplanır.
+ */
+function replan(busId) {
   const st = busState(busId);
   const trip = st.trip;
-  const remaining = trip.stops.filter((s) => !s.done);
-  if (remaining.length === 0) return;
-  const start = st.pos ? [[st.pos.lat, st.pos.lng]] : [];
-  const route = await planRoute([...start, ...remaining.map((s) => [s.lat, s.lng])]);
-  if (st.trip !== trip) return; // bu arada sefer değiştiyse
-  remaining.forEach((s, i) => { s.routeDur = route.cumDur[route.stopIdx[i + start.length]]; });
-  trip.route = route;
-  trip.progress = { idx: 0, dur: 0 };
-  trip.replannedAt = Date.now();
+  if (trip.replanning) { trip.needsReplan = true; return trip.replanning; }
+  trip.replanning = (async () => {
+    do {
+      trip.needsReplan = false;
+      const remaining = trip.stops.filter((s) => !s.done);
+      if (remaining.length === 0) return;
+      const start = st.pos ? [[st.pos.lat, st.pos.lng]] : [];
+      const route = await planRoute([...start, ...remaining.map((s) => [s.lat, s.lng])]);
+      if (st.trip !== trip) return; // bu arada sefer değiştiyse
+      remaining.forEach((s, i) => { s.routeDur = route.cumDur[route.stopIdx[i + start.length]]; });
+      trip.route = route;
+      trip.progress = { idx: 0, dur: 0 };
+      trip.replannedAt = Date.now();
+    } while (trip.needsReplan);
+  })().finally(() => { trip.replanning = null; });
+  return trip.replanning;
 }
 
 function markDone(trip, stop) {
@@ -260,6 +273,10 @@ export async function updatePosition(busId, lat, lng, extra = {}) {
       await replan(busId); // servis güzergâhtan çıktı: kalan duraklar için yeni rota
     } else {
       trip.progress = { idx: pr.idx, dur: pr.dur };
+      if (ROUTING_MODE === 'google' && REFRESH_MS > 0 && Date.now() - trip.replannedAt > REFRESH_MS && !trip.replanning) {
+        // Trafik değişmiş olabilir: arka planda yenile, konum güncellemesini bekletme
+        replan(busId).then(() => events.emit('update', busId)).catch((e) => console.warn('[rota]', e.message));
+      }
     }
 
     // Sıradaki durağa varıldı mı? (GPS durağı ıskalarsa rota üzerinde geçilmişse de say)

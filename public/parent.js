@@ -95,23 +95,23 @@ function render(v) {
 
 function updateMap(v) {
   if (!map) return;
-  if (v.student.home && !homeMarker) homeMarker = L.marker([v.student.home.lat, v.student.home.lng], { icon: pinIcon('🏠') }).addTo(map).bindTooltip('Ev');
-  if (v.school && !schoolMarker) schoolMarker = L.marker([v.school.lat, v.school.lng], { icon: pinIcon('🏫') }).addTo(map).bindTooltip(v.school.name);
+  if (v.student.home && !homeMarker) homeMarker = map.marker([v.student.home.lat, v.student.home.lng], { emoji: '🏠', title: 'Ev' });
+  if (v.school && !schoolMarker) schoolMarker = map.marker([v.school.lat, v.school.lng], { emoji: '🏫', title: v.school.name });
 
   if (v.busPos) {
     const ll = [v.busPos.lat, v.busPos.lng];
-    if (!busMarker) busMarker = L.marker(ll, { icon: busIcon(), zIndexOffset: 1000 }).addTo(map);
-    else busMarker.setLatLng(ll);
+    if (!busMarker) busMarker = map.marker(ll, { kind: 'bus', z: 1000 });
+    else busMarker.setPos(ll);
     busMarker.setOpacity(v.busPos.stale ? 0.5 : 1);
-    busMarker.bindTooltip(v.busPos.stale ? `Son konum ${fmtTime(v.busPos.at)}` : 'Servis');
+    busMarker.setTitle(v.busPos.stale ? `Son konum ${fmtTime(v.busPos.at)}` : 'Servis');
   } else if (busMarker) {
     busMarker.remove();
     busMarker = null;
   }
 
   if (!fitted) {
-    const pts = [homeMarker, schoolMarker, busMarker].filter(Boolean).map((m) => m.getLatLng());
-    if (pts.length) { map.fitBounds(L.latLngBounds(pts).pad(0.2)); fitted = true; }
+    const pts = [homeMarker, schoolMarker, busMarker].filter(Boolean).map((m) => m.pos());
+    if (pts.length) { map.fit(pts); fitted = true; }
   }
 }
 
@@ -210,7 +210,7 @@ $('absentBtn').onclick = async () => {
     $('error').textContent = 'Bu bağlantı geçersiz veya yenilenmiş. Lütfen servis firmasından yeni bağlantı isteyin.';
     return;
   }
-  cfg = await fetch('/api/config').then((r) => r.json());
+  cfg = await getConfig();
   if (pushSupported) navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
   renderPush();
   try {

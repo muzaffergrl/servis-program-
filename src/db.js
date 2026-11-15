@@ -139,7 +139,8 @@ export function checkPassword(pw, stored) {
 export function ensureSuperAdmin(username, password) {
   const u = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
   if (!u) {
-    db.prepare('INSERT INTO users (company_id, username, password_hash, name) VALUES (NULL, ?, ?, ?)')
+    // OR IGNORE: aynı anda iki sunucu açılırsa çakışmasın
+    db.prepare('INSERT OR IGNORE INTO users (company_id, username, password_hash, name) VALUES (NULL, ?, ?, ?)')
       .run(username, hashPassword(password), 'Süper yönetici');
   } else if (u.company_id == null && !checkPassword(password, u.password_hash)) {
     db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(password), u.id);

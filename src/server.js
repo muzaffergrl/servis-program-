@@ -37,8 +37,14 @@ app.get('/login', page('login.html'));
 
 app.get('/healthz', (req, res) => res.send('ok'));
 app.get('/api/config', (req, res) => res.json({
-  tileUrl: process.env.TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-  tileAttribution: process.env.TILE_ATTRIBUTION || '&copy; OpenStreetMap katkıcıları',
+  // Tarayıcı anahtarı herkese açıktır; Google Cloud'da sadece bizim alan adımıza kısıtlanmalı
+  map: process.env.GOOGLE_MAPS_BROWSER_KEY
+    ? { provider: 'google', key: process.env.GOOGLE_MAPS_BROWSER_KEY, mapId: process.env.GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID' }
+    : {
+      provider: 'leaflet',
+      tileUrl: process.env.TILE_URL || 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+      tileAttribution: process.env.TILE_ATTRIBUTION || '&copy; OpenStreetMap katkıcıları',
+    },
   pushKey: publicKey(),
 }));
 

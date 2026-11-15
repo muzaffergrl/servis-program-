@@ -1,12 +1,19 @@
 // Güzergâh ve süre hesabı.
 //
-// Strateji: sefer başında (ve servis güzergâhtan çıkarsa) tüm duraklar için
-// TEK bir rota isteği atılır. Canlı takipte servisin konumu bu rotanın üzerine
-// izdüşürülür ve kalan süre rotadan okunur. Böylece harita servisine sürekli
-// istek atmayız; ücretsiz OSRM / kendi sunucumuzdaki OSRM rahatça yeter.
+// Strateji: sefer başında tüm duraklar için TEK bir rota isteği atılır. Canlı takipte
+// servisin konumu bu rotanın üzerine izdüşürülür ve kalan süre rotadan okunur.
+// Google kullanılıyorsa rota, güncel trafiğe göre birkaç dakikada bir tazelenir
+// (tracker.js, ROUTE_REFRESH_SEC).
+//
+// Sağlayıcılar:
+//  - google : Google Routes API, canlı trafiğe göre (GOOGLE_MAPS_SERVER_KEY gerekir) — canlı kullanım
+//  - osrm   : ücretsiz, trafiksiz — geliştirme
+//  - simple : internet yok, kuş uçuşu tahmin — test
 
 const OSRM_URL = (process.env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
-const MODE = process.env.ROUTING || 'osrm'; // 'osrm' | 'simple'
+const GOOGLE_KEY = process.env.GOOGLE_MAPS_SERVER_KEY || '';
+export const MODE = process.env.ROUTING || (GOOGLE_KEY ? 'google' : 'osrm'); // 'google' | 'osrm' | 'simple'
+const GOOGLE_MAX_POINTS = 27; // başlangıç + 25 ara durak + bitiş
 const SIMPLE_SPEED = Number(process.env.SIMPLE_SPEED_KMH || 25) / 3.6; // m/sn, şehir içi ortalama
 const ROAD_FACTOR = 1.35; // kuş uçuşu mesafeyi yol mesafesine çevirme katsayısı
 
@@ -33,11 +40,18 @@ export async function planRoute(points) {
   if (points.length === 0) throw new Error('Rota için nokta yok');
   if (points.length === 1) return { coords: [points[0]], cumDur: [0], stopIdx: [0], source: 'single' };
 
+  // Google sonuçları güncel trafiğe bağlı ve Google kuralları gereği saklanmaz; diğerleri önbelleğe alınır
   const key = points.map((p) => p.map((v) => v.toFixed(5)).join(',')).join(';');
-  if (cache.has(key)) return cache.get(key);
+  if (MODE !== 'google' && cache.has(key)) return cache.get(key);
 
   let route = null;
-  if (MODE === 'osrm') {
+  if (MODE === 'google') {
+    try {
+      route = await googleRoute(points);
+    } catch (e) {
+      console.warn(`[routing] Google Routes kullanılamadı (${e.message}), basit tahmine geçiliyor`);
+    }
+  } else if (MODE === 'osrm') {
     try {
       route = await osrmRoute(points);
     } catch (e) {
@@ -46,9 +60,102 @@ export async function planRoute(points) {
   }
   if (!route) route = simpleRoute(points);
 
-  if (cache.size > 500) cache.clear();
-  cache.set(key, route);
+  if (MODE !== 'google') {
+    if (cache.size > 500) cache.clear();
+    cache.set(key, route);
+  }
   return route;
+}
+
+// --- Google Routes API ---------------------------------------------------
+
+/** Google'ın kodlanmış çizgi (encoded polyline) formatını çözer → [[lat,lng], ...] */
+export function decodePolyline(str) {
+  const out = [];
+  let i = 0, lat = 0, lng = 0;
+  while (i < str.length) {
+    for (const which of [0, 1]) {
+      let shift = 0, result = 0, b;
+      do {
+        b = str.charCodeAt(i++) - 63;
+        result |= (b & 0x1f) << shift;
+        shift += 5;
+      } while (b >= 0x20);
+      const d = result & 1 ? ~(result >> 1) : result >> 1;
+      if (which === 0) lat += d; else lng += d;
+    }
+    out.push([lat / 1e5, lng / 1e5]);
+  }
+  return out;
+}
+
+const parseSec = (s) => Number(String(s ?? '0').replace(/s$/, '')) || 0;
+
+/** Tek bir Routes API isteği (en fazla 27 nokta) → bacak listesi [{coords, duration}] */
+async function googleLegs(points, fetchFn = fetch) {
+  const wp = ([lat, lng]) => ({ location: { latLng: { latitude: lat, longitude: lng } } });
+  const body = {
+    origin: wp(points[0]),
+    destination: wp(points.at(-1)),
+    intermediates: points.slice(1, -1).map(wp),
+    travelMode: 'DRIVE',
+    routingPreference: 'TRAFFIC_AWARE', // canlı trafik (Pro fiyatı)
+    polylineQuality: 'HIGH_QUALITY',
+    languageCode: 'tr',
+    regionCode: 'TR',
+    units: 'METRIC',
+  };
+  const res = await fetchFn('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Goog-Api-Key': GOOGLE_KEY,
+      // Sadece gereken alanlar istenir (fazlası daha pahalı faturalanabilir)
+      'X-Goog-FieldMask': 'routes.legs.duration,routes.legs.distanceMeters,routes.legs.polyline.encodedPolyline',
+    },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10000),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${data.error?.message || ''}`.trim());
+  const legs = data.routes?.[0]?.legs;
+  if (!legs?.length || legs.length !== points.length - 1) throw new Error('rota bulunamadı');
+  return legs.map((l, i) => {
+    const coords = l.polyline?.encodedPolyline ? decodePolyline(l.polyline.encodedPolyline) : [];
+    if (coords.length < 2) return { coords: [points[i], points[i + 1]], duration: parseSec(l.duration) };
+    return { coords, duration: parseSec(l.duration) };
+  });
+}
+
+/** Bacakları tek rota yapısına çevirir; her bacağın süresi kendi mesafesine orantılı dağıtılır */
+export function legsToRoute(legs, source) {
+  const coords = [];
+  const cumDur = [];
+  const stopIdx = [0];
+  let t = 0;
+  legs.forEach((leg, li) => {
+    const pts = leg.coords;
+    const d = [0];
+    for (let k = 1; k < pts.length; k++) d.push(d[k - 1] + haversine(pts[k - 1], pts[k]));
+    const total = d.at(-1);
+    // İlk bacak hariç, bacağın ilk noktası önceki bacağın son noktasıyla aynı durak: tekrar ekleme
+    for (let k = li === 0 ? 0 : 1; k < pts.length; k++) {
+      coords.push(pts[k]);
+      cumDur.push(t + (total > 0 ? (d[k] / total) * leg.duration : (k === pts.length - 1 ? leg.duration : 0)));
+    }
+    t += leg.duration;
+    stopIdx.push(coords.length - 1);
+  });
+  return { coords, cumDur, stopIdx, source };
+}
+
+export async function googleRoute(points, fetchFn = fetch) {
+  // 25 ara durak sınırı: uzun turları parçalara böl (parçalar uç noktada birleşir)
+  const legs = [];
+  for (let i = 0; i < points.length - 1; i += GOOGLE_MAX_POINTS - 1) {
+    legs.push(...await googleLegs(points.slice(i, i + GOOGLE_MAX_POINTS), fetchFn));
+  }
+  return legsToRoute(legs, 'google');
 }
 
 async function osrmRoute(points) {

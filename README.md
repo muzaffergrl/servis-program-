@@ -44,9 +44,13 @@ npm test            # internet gerektirmez
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | otomatik | Telefon bildirimi anahtarları. Verilmezse ilk açılışta üretilip veritabanında saklanır |
 | `VAPID_SUBJECT` | mailto:destek@example.com | Bildirim servislerine bildirilen iletişim adresi |
 | `DB_FILE` | `data/servis.db` | SQLite dosyası |
-| `ROUTING` | `osrm` | `osrm` (yol ağına göre) veya `simple` (kuş uçuşu × 1.35) |
-| `OSRM_URL` | `https://router.project-osrm.org` | Ücretsiz demo sunucu; kalıcı kullanımda kendi OSRM sunucumuz önerilir |
-| `TILE_URL` | OpenStreetMap | Harita görselleri |
+| `GOOGLE_MAPS_SERVER_KEY` | – | Google Routes API (canlı trafiğe göre süre). Verilirse rota Google'dan alınır |
+| `GOOGLE_MAPS_BROWSER_KEY` | – | Google harita görüntüsü ve adres arama. Verilmezse OpenStreetMap kullanılır |
+| `GOOGLE_MAPS_MAP_ID` | `DEMO_MAP_ID` | Google Map ID (canlıda kendi kimliğimiz) |
+| `ROUTE_REFRESH_SEC` | 180 | Google ile tur sırasında rotanın trafiğe göre yenilenme aralığı (maliyeti belirler) |
+| `ROUTING` | otomatik | `google` / `osrm` (ücretsiz, trafiksiz) / `simple` (internet yok, test) |
+| `OSRM_URL` | `https://router.project-osrm.org` | Google yoksa kullanılan ücretsiz rota sunucusu |
+| `TILE_URL` | OpenStreetMap | Google yoksa harita görselleri |
 | `STOP_DWELL_SEC` | 45 | Her durakta ortalama bekleme |
 | `ARRIVE_RADIUS_M` | 60 | Durağa varıldı sayılma mesafesi |
 | `SIM_SPEEDUP` | 8 | Simülatör hız çarpanı |
@@ -55,14 +59,16 @@ npm test            # internet gerektirmez
 ## Süre nasıl hesaplanıyor?
 
 1. Tur başlarken servisin konumundan başlayıp sıradaki tüm evlerden (ve sabah okuldan) geçen
-   rota **bir kez** OSRM'den alınır. OSRM'e ulaşılamazsa basit tahmine düşer.
+   rota alınır: **Google Routes API ile canlı trafiğe göre**. Tur boyunca 3 dakikada bir
+   güncel trafiğe göre yenilenir. Google'a ulaşılamazsa basit tahmine düşer.
 2. Servisten gelen her konum bu rotanın üzerine izdüşürülür; her durak için kalan süre
    = rotadaki kalan yol süresi + önündeki öğrenci sayısı × durak bekleme süresi.
 3. Servis bir eve 60 m yaklaşınca o durak tamamlanır, veliye bildirim gider.
 4. Servis rotadan 250 m'den fazla saparsa kalan duraklar için rota yeniden hesaplanır.
 5. "Bugün gelmeyecek" denirse o ev turdan çıkarılır, diğer velilerin süresi kısalır.
 
-Harita servisine sürekli istek atılmadığı için ücretsiz servisler yeterli.
+Google kuralı gereği Google'dan gelen süreler Google haritası üzerinde gösterilir; bu yüzden
+anahtar verildiğinde harita da Google'a geçer. Kurulum ve maliyet: `KURULUM.md`.
 
 ## Yoklama ve güvenlik
 
@@ -104,5 +110,4 @@ Veli ekranında "Telefonuma bildirim gelsin" → telefon kilitliyken de bildirim
 - [ ] Zamanla öğrenen süre tahmini ("servis genelde 07:42'de gelir")
 - [ ] Ücret takibi, belge hatırlatma, toplu duyuru
 - [ ] Kardeşleri tek linkte gösterme, günlere göre farklı adres
-- [ ] Trafik verisi (ücretli harita servisi) gerekirse
 - [ ] Sunucuya kurulum (HTTPS zorunlu: tarayıcı konum ve bildirim izni için)

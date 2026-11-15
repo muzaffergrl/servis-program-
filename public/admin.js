@@ -30,7 +30,7 @@ const store = {
 function showTab(name) {
   document.querySelectorAll('nav button').forEach((x) => x.classList.toggle('active', x.dataset.tab === name));
   document.querySelectorAll('section').forEach((s) => s.classList.toggle('active', s.id === `tab-${name}`));
-  setTimeout(() => [liveMap, pickMap, schoolMap].forEach((m) => m?.invalidateSize()), 50);
+  setTimeout(() => [liveMap, pickMap, schoolMap].forEach((m) => m?.resize()), 50);
   if (name === 'attendance') loadAttendance();
   if (name === 'companies') loadCompanies();
 }
@@ -95,8 +95,9 @@ function renderLive() {
     const p = b.live.pos;
     let m = busMarkers.get(b.id);
     if (!p) { m?.remove(); busMarkers.delete(b.id); continue; }
-    if (!m) { m = L.marker([p.lat, p.lng], { icon: busIcon() }).addTo(liveMap); busMarkers.set(b.id, m); }
-    m.setLatLng([p.lat, p.lng]).setOpacity(p.stale ? 0.5 : 1).bindTooltip(b.name);
+    if (!m) { m = liveMap.marker([p.lat, p.lng], { kind: 'bus', title: b.name }); busMarkers.set(b.id, m); }
+    m.setPos([p.lat, p.lng]);
+    m.setOpacity(p.stale ? 0.5 : 1);
   }
   for (const [id, m] of busMarkers) if (!S.buses.some((b) => b.id === id)) { m.remove(); busMarkers.delete(id); }
 }
@@ -219,8 +220,8 @@ function setPick(map, form, markerRef, lat, lng, emoji) {
   form.elements.lat.value = lat.toFixed(6);
   form.elements.lng.value = lng.toFixed(6);
   let m = markerRef();
-  if (!m) m = L.marker([lat, lng], { icon: pinIcon(emoji) }).addTo(map);
-  else m.setLatLng([lat, lng]);
+  if (!m) m = map.marker([lat, lng], { emoji });
+  else m.setPos([lat, lng]);
   return m;
 }
 
@@ -352,9 +353,22 @@ async function loadMe() {
   await load();
   const center = S.schools[0] ? [S.schools[0].lat, S.schools[0].lng] : [41.0255, 29.096];
   [liveMap, pickMap, schoolMap] = await Promise.all([makeMap('liveMap', center, 13), makeMap('pickMap', center, 13), makeMap('schoolMap', center, 13)]);
-  for (const s of S.schools) L.marker([s.lat, s.lng], { icon: pinIcon('🏫') }).addTo(liveMap).bindTooltip(s.name);
-  pickMap.on('click', (e) => { pickMarker = setPick(pickMap, studentForm, () => pickMarker, e.latlng.lat, e.latlng.lng, '🏠'); });
-  schoolMap.on('click', (e) => { schoolPickMarker = setPick(schoolMap, schoolForm, () => schoolPickMarker, e.latlng.lat, e.latlng.lng, '🏫'); });
+  for (const s of S.schools) liveMap.marker([s.lat, s.lng], { emoji: '🏫', title: s.name });
+  pickMap.onClick((lat, lng) => { pickMarker = setPick(pickMap, studentForm, () => pickMarker, lat, lng, '🏠'); });
+  schoolMap.onClick((lat, lng) => { schoolPickMarker = setPick(schoolMap, schoolForm, () => schoolPickMarker, lat, lng, '🏫'); });
+
+  // Google varsa adres yazarak konum bulma
+  const hint = 'Adresi yazıp listeden seçin; gerekirse haritaya tıklayarak tam yeri düzeltin.';
+  addressSearch($('studentSearch'), (lat, lng, addr) => {
+    pickMarker = setPick(pickMap, studentForm, () => pickMarker, lat, lng, '🏠');
+    pickMap.setView([lat, lng], 17);
+    if (addr) studentForm.elements.address.value = addr;
+  }, center).then((ok) => { if (ok) $('studentPickHint').textContent = hint; }).catch(() => {});
+  addressSearch($('schoolSearch'), (lat, lng, addr) => {
+    schoolPickMarker = setPick(schoolMap, schoolForm, () => schoolPickMarker, lat, lng, '🏫');
+    schoolMap.setView([lat, lng], 17);
+    if (addr && !schoolForm.elements.name.value) schoolForm.elements.name.value = addr.split(',')[0];
+  }, center).then((ok) => { if (ok) $('schoolPickHint').textContent = hint; }).catch(() => {});
   renderLive();
   const q = me.user.isSuper ? `?company=${companyId}` : '';
   liveStream(`/api/admin/stream${q}`, { state: (st) => { S = st; renderLive(); } });

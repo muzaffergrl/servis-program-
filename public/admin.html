@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Servis Takip Yönetim</title>
   <link rel="icon" href="/static/icon.svg">
-  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="/static/style.css">
   <style>
     body { padding: 16px; max-width: 1200px; margin: 0 auto; }
@@ -113,7 +112,8 @@
           <label>Veli telefonu<input name="parent_phone" type="tel" placeholder="05xx..."></label>
         </div>
         <label>Adres<input name="address"></label>
-        <p class="muted small">Ev konumunu seçmek için haritaya tıklayın.</p>
+        <div id="studentSearch" style="margin-bottom:8px"></div>
+        <p class="muted small" id="studentPickHint">Ev konumunu seçmek için haritaya tıklayın.</p>
         <div id="pickMap"></div>
         <div class="two">
           <label>Enlem<input name="lat" readonly></label>
@@ -131,7 +131,8 @@
         <h3 id="schoolFormTitle">Yeni okul</h3>
         <input type="hidden" name="id">
         <label>Okul adı<input name="name" required></label>
-        <p class="muted small">Okul kapısını seçmek için haritaya tıklayın.</p>
+        <div id="schoolSearch" style="margin-bottom:8px"></div>
+        <p class="muted small" id="schoolPickHint">Okul kapısını seçmek için haritaya tıklayın.</p>
         <div id="schoolMap"></div>
         <div class="two">
           <label>Enlem<input name="lat" readonly required></label>
@@ -161,7 +162,6 @@
     </div>
   </section>
 
-  <script src="/vendor/leaflet/leaflet.js"></script>
   <script src="/static/common.js"></script>
   <script src="/static/admin.js"></script>
 </body>
