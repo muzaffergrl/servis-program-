@@ -30,7 +30,33 @@ app.use('/static', express.static(path.join(root, 'public')));
 app.use('/vendor/leaflet', express.static(path.join(root, 'node_modules', 'leaflet', 'dist')));
 // Service worker kök dizinden sunulmalı ki tüm sayfaları kapsasın
 app.get('/sw.js', (req, res) => { res.set('Cache-Control', 'no-cache'); res.sendFile(path.join(root, 'public', 'sw.js')); });
-app.get('/', (req, res) => res.redirect('/admin'));
+// DEMO_HUB=1 ise ana sayfa, demo firmasının tüm ekranlarına tek tıkla giden bir menü olur (canlıda kapalı)
+app.get('/', (req, res) => {
+  if (process.env.DEMO_HUB !== '1') return res.redirect('/admin');
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
+  const buses = db.prepare('SELECT b.id, b.name, b.driver_token FROM buses b JOIN companies c ON c.id = b.company_id WHERE c.name = ? ORDER BY b.id').all('Demo Servis');
+  const studentsOf = db.prepare('SELECT name, parent_token FROM students WHERE bus_id = ? ORDER BY stop_order, id');
+  const busHtml = buses.map((b) => `
+    <div class="card"><h3>🚌 ${esc(b.name)}</h3>
+      <a class="big" href="/d/${esc(b.driver_token)}">👨‍✈️ Şoför ekranı</a>
+      <p class="muted small">Veli ekranları:</p>
+      <div class="list">${studentsOf.all(b.id).map((s) => `<a href="/v/${esc(s.parent_token)}">👪 ${esc(s.name)}</a>`).join('')}</div>
+    </div>`).join('');
+  res.send(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Servis Takip – Demo</title><link rel="stylesheet" href="/static/style.css">
+<style>body{padding:16px;max-width:720px;margin:0 auto}.card{margin-bottom:14px}a.big{display:block;padding:14px;border-radius:12px;background:var(--primary);color:var(--primary-ink);text-decoration:none;font-weight:600;text-align:center;margin:8px 0}
+.list{display:grid;grid-template-columns:1fr 1fr;gap:8px}.list a{padding:10px;border:1px solid var(--line);border-radius:10px;text-decoration:none;color:inherit}
+ol{padding-left:20px;line-height:1.6}</style></head><body>
+<h1>🚌 Servis Takip – Demo</h1>
+<div class="card"><h3>Nasıl denenir?</h3><ol>
+<li><b>Firma paneli</b>ne gir (kullanıcı: <b>demo</b>, şifre: <b>demo123</b>).</li>
+<li><b>Canlı</b> sekmesinde Servis 1'in yanındaki <b>▶ Sabah simülasyonu</b>na bas.</li>
+<li>Bu sayfaya geri dön (tarayıcıda geri), bir <b>veli ekranı</b> aç: servisin kaç dakikada geleceğini gör.</li>
+</ol>
+<a class="big" href="/login">🏢 Firma paneli (giriş)</a></div>
+${busHtml}
+</body></html>`);
+});
 app.get('/v/:token', page('parent.html'));
 app.get('/d/:token', page('driver.html'));
 app.get('/login', page('login.html'));
