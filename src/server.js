@@ -169,7 +169,7 @@ function busByToken(token) {
   if (!b) throw new HttpError(404, 'Bağlantı geçersiz');
   return b;
 }
-const driverView = (b) => ({ bus: { id: b.id, name: b.name, plate: b.plate }, ...busView(b.id) });
+const driverView = (b) => ({ bus: { id: b.id, name: b.name, plate: b.plate, driverName: b.driver_name }, ...busView(b.id) });
 
 app.get('/api/driver/:token', (req, res) => res.json(driverView(busByToken(req.params.token))));
 app.get('/api/driver/:token/stream', (req, res) => {

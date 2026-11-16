@@ -5,23 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Servis Takip Giriş</title>
   <link rel="icon" href="/static/icon.svg">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&family=Manrope:wght@400;500;600;700;800&display=swap">
   <link rel="stylesheet" href="/static/style.css">
   <style>
-    body { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-    form { width: 100%; max-width: 360px; }
-    h1 { text-align: center; margin-bottom: 16px; }
-    button { width: 100%; margin-top: 4px; }
-    #err { color: var(--danger); min-height: 1.2em; margin: 8px 0 0; font-size: .9rem; }
+    body { min-height: 100vh; display: grid; place-items: center; padding: 16px;
+      background: radial-gradient(circle at 20% 10%, #3A63A3 0%, #1F3A63 45%, #14243D 100%); }
+    .box { width: 100%; max-width: 380px; }
+    .head { text-align: center; color: #fff; margin-bottom: 18px; }
+    .head .brandmark { width: 56px; height: 56px; border-radius: 16px; margin-bottom: 10px; box-shadow: 0 10px 30px -10px rgba(242,183,5,.7); }
+    .head h1 { font-size: 1.8rem; margin: 0; }
+    .head p { margin: 4px 0 0; opacity: .75; }
+    form { padding: 22px; box-shadow: 0 30px 60px -30px rgba(0,0,0,.6); }
+    button { width: 100%; margin-top: 6px; padding: 13px; }
+    #err { color: var(--danger); min-height: 1.2em; margin: 10px 0 0; font-size: .9rem; font-weight: 600; }
   </style>
 </head>
 <body>
-  <form class="card" id="f">
-    <h1>🚌 Servis Takip</h1>
-    <label>Kullanıcı adı<input name="username" autocomplete="username" autocapitalize="none" required autofocus></label>
-    <label>Şifre<input name="password" type="password" autocomplete="current-password" required></label>
-    <button class="primary">Giriş yap</button>
-    <p id="err"></p>
-  </form>
+  <div class="box">
+    <div class="head">
+      <span class="brandmark"><svg width="32" height="32" viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="3" fill="#1C1600"/><rect x="5" y="6" width="14" height="5" rx="1" fill="#F2B705"/><circle cx="7.5" cy="19" r="2" fill="#1C1600"/><circle cx="16.5" cy="19" r="2" fill="#1C1600"/></svg></span>
+      <h1>Servis Takip</h1>
+      <p>Servis firması paneli</p>
+    </div>
+    <form class="card" id="f">
+      <label>Kullanıcı adı<input name="username" autocomplete="username" autocapitalize="none" required autofocus></label>
+      <label>Şifre<input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary">Giriş yap</button>
+      <p id="err"></p>
+    </form>
+  </div>
   <script src="/static/common.js"></script>
   <script>
     $('f').onsubmit = async (e) => {

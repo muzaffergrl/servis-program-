@@ -41,7 +41,7 @@ if (db.prepare('SELECT COUNT(*) AS n FROM companies').get().n > 0) {
 
   // Son 3 haftanın yoklaması (hafta içi). "Servis genelde 07:31'de gelir" tahmini bundan öğrenilir.
   const att = db.prepare(`INSERT INTO attendance (company_id, bus_id, student_id, date, trip_type, event, at, source) VALUES (?, ?, ?, ?, ?, ?, ?, 'driver')`);
-  const istanbul = (date, h, m) => new Date(`${date}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00+03:00`).getTime();
+  const istanbul = (date, h, m) => new Date(`${date}T00:00:00+03:00`).getTime() + (h * 60 + m) * 60_000;
   let rnd = 7;
   const jitter = () => { rnd = (rnd * 1103515245 + 12345) % 2147483648; return (rnd % 5) - 2; }; // -2..+2 dk
   for (let d = 21; d >= 1; d--) {

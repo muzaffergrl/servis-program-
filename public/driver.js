@@ -1,44 +1,47 @@
 const token = location.pathname.split('/').pop();
 let watchId = null, wakeLock = null, lastSent = 0, view = null;
 
-function rowHtml(r, trip, etaByStudent) {
+function rowHtml(r, trip, etaByStudent, i) {
   const morning = trip.type === 'morning';
   const eta = etaByStudent.get(r.studentId);
   const id = r.studentId;
   let status = '', buttons = '';
 
   if (r.parentAbsent && !r.boardedAt) {
-    status = '<span class="muted">Veli: bugün gelmeyecek</span>';
+    status = '<span class="chip nav">Veli: gelmeyecek</span>';
   } else if (r.noLocation) {
-    status = '<span class="muted">Ev konumu girilmemiş</span>';
+    status = '<span class="chip warn">Ev konumu yok</span>';
   } else if (r.absentAt) {
-    status = `<span class="status-no">✗ Binmedi ${fmtTime(r.absentAt)}</span>`;
+    status = `<span class="chip bad">✕ Binmedi ${fmtTime(r.absentAt)}</span>`;
   } else if (r.droppedAt) {
-    status = `<span class="status-ok">✓ İndi ${fmtTime(r.droppedAt)}</span>`;
+    status = `<span class="chip ok">✓ İndi ${fmtTime(r.droppedAt)}</span>`;
   } else if (r.boardedAt) {
-    status = `<span class="status-ok">✓ Bindi ${fmtTime(r.boardedAt)}</span>`;
+    status = `<span class="chip ok">✓ Bindi ${fmtTime(r.boardedAt)}</span>`;
     // Sabah inişler okulda toplu yapılır; akşam her evde tek tek
     if (!morning) buttons = `<button class="b-ok" data-ev="dropped" data-id="${id}">🏠 İndi</button><span></span>`;
   } else {
-    status = eta != null ? `<span class="muted">${fmtMin(eta)} dk</span>` : '';
+    status = eta != null ? `<span class="mono muted">${fmtMin(eta)} dk</span>` : '';
     buttons = `<button class="b-ok" data-ev="boarded" data-id="${id}">✓ Bindi</button>
-               <button class="b-no" data-ev="absent" data-id="${id}">✗ Binmedi</button>`;
+               <button class="b-no" data-ev="absent" data-id="${id}">✕ Binmedi</button>`;
   }
   const marked = r.boardedAt || r.absentAt;
   const undo = marked && !trip.closedAt ? `<button class="undo" data-ev="undo" data-id="${id}">geri al</button>` : '';
   const off = (r.parentAbsent && !r.boardedAt) || r.noLocation || r.absentAt || r.droppedAt;
   return `<li class="${off ? 'off' : ''}">
-    <div class="top"><span class="name">${escapeHtml(r.name)}</span><span>${status} ${undo}</span></div>
+    <div class="top"><span class="name"><span class="no">${i + 1}</span>${escapeHtml(r.name)}</span><span>${status} ${undo}</span></div>
     ${buttons ? `<div class="btns">${buttons}</div>` : ''}
   </li>`;
 }
 
 function render(v) {
   view = v;
-  $('title').textContent = `${v.bus.name}${v.bus.plate ? ' · ' + v.bus.plate : ''}`;
+  $('title').textContent = v.bus.name;
+  $('who').textContent = v.bus.driverName ? `Şoför: ${v.bus.driverName}` : '';
+  $('plateBox').innerHTML = v.bus.plate ? `<span class="plate"><b>TR</b><span>${escapeHtml(v.bus.plate)}</span></span>` : '';
   const trip = v.trip && !v.trip.closedAt ? v.trip : null;
   $('startBtns').hidden = !!trip;
   $('tripBox').hidden = !trip;
+  $('counts').hidden = !trip;
 
   $('alarm').innerHTML = trip?.finishedAt && trip.onBoard.length
     ? `<div class="alarm">⚠️ İnişi işaretlenmemiş: ${trip.onBoard.map(escapeHtml).join(', ')}<br>Aracı kontrol edin, kimse kalmasın!</div>`
@@ -48,10 +51,27 @@ function render(v) {
   startGps();
 
   const morning = trip.type === 'morning';
-  $('tripTitle').textContent = morning ? '🌅 Sabah turu' : '🌇 Akşam turu';
+  const rs = trip.riders;
+  const n = (f) => rs.filter(f).length;
+  $('counts').innerHTML = `
+    <div><b>${n((r) => r.boardedAt && !r.droppedAt)}</b><span>Araçta</span></div>
+    <div><b>${n((r) => !r.boardedAt && !r.absentAt && !r.parentAbsent && !r.noLocation)}</b><span>Bekleyen</span></div>
+    <div><b>${n((r) => r.absentAt || (r.parentAbsent && !r.boardedAt))}</b><span>Gelmeyen</span></div>`;
+
+  $('tripTitle').textContent = `${morning ? '🌅 Sabah turu' : '🌇 Akşam turu'} · ${rs.length} öğrenci`;
   const etaByStudent = new Map(trip.stops.filter((s) => s.kind === 'student').map((s) => [s.studentId, s.etaSec]));
-  const riders = morning ? trip.riders : [...trip.riders].reverse();
-  $('riders').innerHTML = riders.map((r) => rowHtml(r, trip, etaByStudent)).join('');
+  const riders = morning ? rs : [...rs].reverse();
+  $('riders').innerHTML = riders.map((r, i) => rowHtml(r, trip, etaByStudent, i)).join('');
+
+  // Sıradaki durak
+  const next = trip.stops.find((s) => !s.done);
+  const nc = $('nextCard');
+  nc.hidden = !next;
+  if (next) {
+    nc.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><span class="lbl">Sıradaki durak</span><span class="eta">${next.etaSec != null && next.etaSec < 45 ? 'şimdi' : fmtMin(next.etaSec) + ' dk'}</span></div>
+      <div class="nm">${next.kind === 'school' ? '🏫 ' : ''}${escapeHtml(next.name)}</div>
+      <div class="ad">${next.kind === 'school' ? `Araçta ${trip.onBoard.length} öğrenci` : morning ? 'Öğrenciyi alın, "Bindi"ye basın' : 'Öğrenciyi bırakın, "İndi"ye basın'}</div>`;
+  }
 
   const bulk = $('bulkBtn');
   if (morning) {
@@ -100,7 +120,7 @@ function startGps() {
   if (watchId != null) return;
   if (!navigator.geolocation) { $('gps').textContent = 'Bu cihaz konum desteklemiyor'; return; }
   watchId = navigator.geolocation.watchPosition(async (p) => {
-    $('gps').innerHTML = `<span class="dot ok"></span> GPS açık (±${Math.round(p.coords.accuracy)} m)`;
+    $('gps').innerHTML = `<span class="dot ok"></span> Konum paylaşılıyor (±${Math.round(p.coords.accuracy)} m)`;
     if (Date.now() - lastSent < 4000) return;
     lastSent = Date.now();
     try {

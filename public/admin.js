@@ -33,6 +33,9 @@ function showTab(name) {
   setTimeout(() => [liveMap, pickMap, schoolMap].forEach((m) => m?.resize()), 50);
   if (name === 'attendance') loadAttendance();
   if (name === 'companies') loadCompanies();
+  if (name === 'announce') loadAnnouncements();
+  if (name === 'payments') loadPayments();
+  if (name === 'documents') loadDocuments();
 }
 document.querySelectorAll('nav button').forEach((b) => b.onclick = () => showTab(b.dataset.tab));
 
@@ -50,41 +53,69 @@ function renderSelects() {
   const busOpts = '<option value="">—</option>' + S.buses.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
   document.querySelectorAll('.schoolSelect').forEach((el) => { const v = el.value; el.innerHTML = schoolOpts; el.value = v; });
   document.querySelectorAll('.busSelect').forEach((el) => { const v = el.value; el.innerHTML = busOpts; el.value = v; });
-  for (const f of [$('studentFilter'), $('attBus')]) {
+  const av = $('annBus').value;
+  $('annBus').innerHTML = '<option value="">Tüm veliler (bütün servisler)</option>' + S.buses.map((b) => `<option value="${b.id}">${escapeHtml(b.name)} velileri</option>`).join('');
+  $('annBus').value = av;
+  for (const f of [$('studentFilter'), $('attBus'), $('payBus')]) {
     const fv = f.value;
     f.innerHTML = '<option value="">Tümü</option>' + S.buses.map((b) => `<option value="${b.id}">${escapeHtml(b.name)}</option>`).join('');
     f.value = fv;
   }
 }
 
+const plateHtml = (p) => (p ? `<span class="plate"><b>TR</b><span>${escapeHtml(p)}</span></span>` : '');
+const daysLeft = (d) => Math.round((new Date(d + 'T12:00:00') - new Date(S.today + 'T12:00:00')) / 86400_000);
+
 function renderLive() {
+  // Özet kutuları
+  const open = S.buses.filter((b) => b.live.trip && !b.live.trip.closedAt);
+  const riders = open.flatMap((b) => b.live.trip.riders);
+  const onBoard = riders.filter((r) => r.boardedAt && !r.droppedAt).length;
+  const absentToday = S.students.filter((s) => s.absent_on === S.today).length + riders.filter((r) => r.absentAt).length;
+  const alarms = open.filter((b) => b.live.trip.finishedAt && b.live.trip.onBoard.length).length;
+  const docs = S.docAlerts || [];
+  $('kpis').innerHTML = `
+    <div class="kpi"><span class="ico g">🚌</span><div><div class="v">${open.length}<span class="muted" style="font-size:1rem"> / ${S.buses.length}</span></div><div class="k">Yoldaki servis</div></div></div>
+    <div class="kpi"><span class="ico y">🎒</span><div><div class="v">${onBoard}</div><div class="k">Şu an serviste</div></div></div>
+    <div class="kpi"><span class="ico b">👪</span><div><div class="v">${S.students.length}</div><div class="k">Toplam öğrenci</div></div></div>
+    <div class="kpi"><span class="ico o">🙋</span><div><div class="v">${absentToday}</div><div class="k">Bugün gelmeyen</div></div></div>
+    <div class="kpi ${alarms ? 'alert' : ''}"><span class="ico ${docs.length ? 'r' : 't'}">${alarms ? '⚠️' : '📄'}</span><div><div class="v">${alarms || docs.length}</div><div class="k">${alarms ? 'Araçta unutulan!' : 'Belge uyarısı'}</div></div></div>`;
+  $('docBadge').hidden = !docs.length;
+  $('docBadge').textContent = docs.length;
+  $('docAlerts').innerHTML = docs.map((d) => {
+    const n = daysLeft(d.expires_on);
+    return `<div class="doc-alert ${n < 0 ? 'exp' : ''}"><span>${n < 0 ? '⛔' : '⏳'}</span><div><b>${escapeHtml(d.bus_name || 'Genel')}: ${escapeHtml(d.kind)}</b><div class="small">${n < 0 ? `${-n} gün önce bitti` : n === 0 ? 'Bugün bitiyor' : `${n} gün kaldı`} · ${new Date(d.expires_on + 'T12:00:00').toLocaleDateString('tr-TR')}</div></div></div>`;
+  }).join('');
+
   $('liveList').innerHTML = S.buses.map((b) => {
     const t = b.live.trip;
-    const open = t && !t.closedAt;
-    const status = open
-      ? `<span class="dot ok"></span> ${t.type === 'morning' ? 'Sabah turu' : 'Akşam turu'}${t.finishedAt ? ' (duraklar bitti)' : ''}${b.simulating ? ' · simülasyon' : ''}`
+    const isOpen = t && !t.closedAt;
+    const status = isOpen
+      ? `<span class="dot ok"></span> ${t.type === 'morning' ? 'Sabah turu' : 'Akşam turu'}${t.finishedAt ? ' · duraklar bitti' : ''}${b.simulating ? ' · simülasyon' : ''}`
       : t?.closedAt ? `<span class="dot"></span> Tur bitti ${fmtTime(t.closedAt)}` : '<span class="dot"></span> Beklemede';
-    const riders = new Map((t?.riders || []).map((r) => [r.studentId, r]));
-    const att = (s) => {
-      const r = riders.get(s.studentId);
-      if (!r) return '';
-      if (r.absentAt) return ' <span class="bad">binmedi</span>';
-      if (r.droppedAt) return ' <span class="ok">indi</span>';
-      if (r.boardedAt) return ' <span class="ok">bindi</span>';
-      return '';
+    const riderMap = new Map((t?.riders || []).map((r) => [r.studentId, r]));
+    const att = (st) => {
+      const r = riderMap.get(st.studentId);
+      if (!r) return null;
+      if (r.absentAt) return '<span class="chip bad">binmedi</span>';
+      if (r.droppedAt) return '<span class="chip ok">indi</span>';
+      if (r.boardedAt) return '<span class="chip ok">bindi</span>';
+      return null;
     };
-    const stops = open && !t.finishedAt
-      ? `<ol>${t.stops.map((s) => `<li class="${s.done ? 'done' : ''}">${escapeHtml(s.name)} — ${s.done ? fmtTime(s.doneAt) : fmtMin(s.etaSec) + ' dk'}${att(s)}</li>`).join('')}</ol>`
+    const stops = isOpen && !t.finishedAt
+      ? `<ul class="stops">${t.stops.map((st, i) => `<li class="${st.done ? 'done' : ''}"><span class="n">${st.done ? '✓' : st.kind === 'school' ? 'O' : i + 1}</span><span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(st.name)}</span>${att(st) || (st.done ? `<span class="mono muted small">${fmtTime(st.doneAt)}</span>` : `<span class="e">${fmtMin(st.etaSec)} dk</span>`)}</li>`).join('')}</ul>`
       : '';
-    const alarm = open && t.finishedAt && t.onBoard.length
+    const alarm = isOpen && t.finishedAt && t.onBoard.length
       ? `<div class="alarm">⚠️ İnişi işaretlenmemiş: ${t.onBoard.map(escapeHtml).join(', ')}</div>` : '';
-    const stale = open && !t.finishedAt && b.live.pos?.stale ? '<div class="small" style="color:var(--warn)">⚠️ Konum 2 dakikadır gelmiyor</div>' : '';
-    return `<div class="card bus-card">
-      <b>${escapeHtml(b.name)}</b> <span class="muted small">${escapeHtml(b.plate || '')}</span>
-      <div class="small">${status}</div>${alarm}${stale}${stops}
-      <div class="btns" style="margin-top:8px">
-        ${open
-          ? `<button data-act="end" data-id="${b.id}">Turu bitir</button>`
+    const stale = isOpen && !t.finishedAt && b.live.pos?.stale ? '<div class="chip warn" style="margin-top:6px">⚠️ Konum 2 dakikadır gelmiyor</div>' : '';
+    const count = S.students.filter((s) => s.bus_id === b.id).length;
+    return `<div class="card bus-card ${isOpen ? 'live' : ''}">
+      <div class="hd"><h3>${escapeHtml(b.name)}</h3>${plateHtml(b.plate)}</div>
+      <div class="muted small">${escapeHtml(b.driver_name || 'Şoför girilmemiş')} · ${count} öğrenci</div>
+      <div class="status">${status}</div>${alarm}${stale}${stops}
+      <div class="btns" style="margin-top:10px">
+        ${isOpen
+          ? `<button data-act="end" data-id="${b.id}">⏹ Turu bitir</button>`
           : `<button data-act="sim" data-type="morning" data-id="${b.id}">▶ Sabah simülasyonu</button>
              <button data-act="sim" data-type="afternoon" data-id="${b.id}">▶ Akşam simülasyonu</button>`}
       </div></div>`;
@@ -105,7 +136,7 @@ function renderLive() {
 function renderBuses() {
   $('busTable').innerHTML = `<tr><th>Servis</th><th>Plaka</th><th>Şoför</th><th>Okul</th><th>Öğrenci</th><th></th></tr>` +
     S.buses.map((b) => `<tr>
-      <td>${escapeHtml(b.name)}</td><td>${escapeHtml(b.plate || '')}</td>
+      <td><b>${escapeHtml(b.name)}</b></td><td>${plateHtml(b.plate)}</td>
       <td>${escapeHtml(b.driver_name || '')}<div class="muted small">${escapeHtml(b.driver_phone || '')}</div></td>
       <td>${escapeHtml(schoolName(b.school_id))}</td>
       <td>${S.students.filter((s) => s.bus_id === b.id).length}</td>
@@ -120,13 +151,14 @@ function renderBuses() {
 function renderStudents() {
   const filter = Number($('studentFilter').value) || null;
   const list = S.students.filter((s) => !filter || s.bus_id === filter);
-  $('studentTable').innerHTML = `<tr><th>Sıra</th><th>Öğrenci</th><th>Servis</th><th>Veli</th><th>Konum</th><th></th></tr>` +
+  $('studentTable').innerHTML = `<tr><th>Sıra</th><th>Öğrenci</th><th>Servis</th><th>Veli</th><th>Ücret</th><th>Konum</th><th></th></tr>` +
     list.map((s) => `<tr>
       <td>${s.stop_order}</td>
-      <td>${escapeHtml(s.name)}${s.absent_on ? `<div class="small" style="color:var(--warn)">${s.absent_on} gelmeyecek</div>` : ''}</td>
+      <td><b>${escapeHtml(s.name)}</b>${s.absent_on === S.today ? '<div><span class="chip warn">bugün gelmeyecek</span></div>' : ''}</td>
       <td>${escapeHtml(busName(s.bus_id))}</td>
       <td>${escapeHtml(s.parent_name || '')}<div class="muted small">${escapeHtml(s.parent_phone || '')}</div></td>
-      <td>${s.lat != null ? '✅' : '<span style="color:var(--danger)">Yok</span>'}</td>
+      <td class="mono">${s.monthly_fee ? Number(s.monthly_fee).toLocaleString('tr-TR') + ' ₺' : '<span class="muted">–</span>'}</td>
+      <td>${s.lat != null ? '<span class="chip ok">var</span>' : '<span class="chip bad">yok</span>'}</td>
       <td class="btns">
         <button data-act="editStudent" data-id="${s.id}">Düzenle</button>
         <button data-act="copyParent" data-id="${s.id}">Veli linki</button>
@@ -161,6 +193,12 @@ async function loadAttendance() {
     return parentAbsent ? '<span class="muted">Veli: gelmeyecek</span>' : '<span class="muted">–</span>';
   };
   const rows = data.students.filter((s) => !bus || s.bus_id === bus);
+  const cnt = (f) => rows.filter(f).length;
+  $('attSum').innerHTML = `
+    <div class="kpi"><span class="ico g">✅</span><div><div class="v">${cnt((s) => s.morning.boarded)}</div><div class="k">Sabah bindi</div></div></div>
+    <div class="kpi"><span class="ico r">✕</span><div><div class="v">${cnt((s) => s.morning.absent || s.afternoon.absent)}</div><div class="k">Binmedi</div></div></div>
+    <div class="kpi"><span class="ico o">🙋</span><div><div class="v">${cnt((s) => s.parentAbsent)}</div><div class="k">Veli: gelmeyecek</div></div></div>
+    <div class="kpi"><span class="ico b">🌇</span><div><div class="v">${cnt((s) => s.afternoon.dropped)}</div><div class="k">Akşam evde indi</div></div></div>`;
   $('attTable').innerHTML = `<tr><th>Öğrenci</th><th>Servis</th><th>Sabah (bindi → indi)</th><th>Akşam (bindi → indi)</th></tr>` +
     (rows.map((s) => `<tr><td>${escapeHtml(s.name)}</td><td>${escapeHtml(busName(s.bus_id))}</td>
       <td>${cell(s.morning, s.parentAbsent)}</td><td>${cell(s.afternoon, s.parentAbsent)}</td></tr>`).join('')
@@ -168,6 +206,79 @@ async function loadAttendance() {
 }
 $('attDate').onchange = loadAttendance;
 $('attBus').onchange = loadAttendance;
+
+// --- Duyurular --------------------------------------------------------------
+async function loadAnnouncements() {
+  if (!companyId) return;
+  const list = await api('GET', '/api/admin/announcements');
+  $('annList').innerHTML = list.map((a) => `<div class="ann-item"><span class="ico v">📢</span><div style="flex:1;min-width:0">
+      <div>${escapeHtml(a.text)}</div>
+      <div class="muted small">${new Date(a.created_at).toLocaleString('tr-TR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })} · ${a.bus_name ? escapeHtml(a.bus_name) + ' velileri' : 'Tüm veliler'}</div></div>
+      <button class="danger" data-act="delAnn" data-id="${a.id}" style="padding:6px 10px;font-size:.8rem">Sil</button></div>`).join('')
+    || '<p class="muted">Henüz duyuru gönderilmedi.</p>';
+}
+$('annForm').onsubmit = async (e) => {
+  e.preventDefault();
+  const data = formData(e.target);
+  if (!confirm(`${data.bus_id ? busName(Number(data.bus_id)) + ' velilerine' : 'Tüm velilere'} duyuru gönderilsin mi?`)) return;
+  try {
+    const r = await api('POST', '/api/admin/announcements', data);
+    toast(`Duyuru ${r.sent} veliye gönderildi`);
+    e.target.reset();
+    loadAnnouncements();
+  } catch (err) { toast(err.message); }
+};
+
+// --- Aidat ------------------------------------------------------------------
+const MONTHS_TR = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık'];
+async function loadPayments() {
+  if (!companyId) return;
+  const data = await api('GET', `/api/admin/payments?month=${encodeURIComponent($('payMonth').value)}`);
+  const bus = Number($('payBus').value) || null;
+  const rows = data.rows.filter((r) => !bus || r.bus_id === bus);
+  const withFee = rows.filter((r) => r.monthly_fee || r.amount);
+  const paid = withFee.filter((r) => r.payment_id);
+  const total = withFee.reduce((a, r) => a + (r.amount || r.monthly_fee || 0), 0);
+  const got = paid.reduce((a, r) => a + r.amount, 0);
+  const tl = (n) => Number(n).toLocaleString('tr-TR') + ' ₺';
+  const pct = total ? Math.round((got / total) * 100) : 0;
+  $('paySum').innerHTML = `
+    <div class="kpi"><span class="ico g">💳</span><div style="flex:1"><div class="v">${tl(got)}</div><div class="k">Tahsil edilen · %${pct}</div><div class="bar"><i style="width:${pct}%"></i></div></div></div>
+    <div class="kpi"><span class="ico o">⏳</span><div><div class="v">${tl(total - got)}</div><div class="k">Bekleyen · ${withFee.length - paid.length} öğrenci</div></div></div>
+    <div class="kpi"><span class="ico b">📅</span><div><div class="v">${MONTHS_TR[Number(data.month.slice(5)) - 1]}</div><div class="k">${data.month.slice(0, 4)}</div></div></div>`;
+  $('payTable').innerHTML = `<tr><th>Öğrenci</th><th>Servis</th><th>Veli</th><th>Tutar</th><th>Durum</th><th></th></tr>` +
+    (rows.map((r) => {
+      const amount = r.amount || r.monthly_fee;
+      const state = r.payment_id
+        ? `<span class="chip ok">Ödendi · ${new Date(r.paid_at).toLocaleDateString('tr-TR', { day: 'numeric', month: 'short' })}</span>`
+        : amount ? '<span class="chip warn">Bekliyor</span>' : '<span class="muted small">Ücret girilmemiş</span>';
+      const btn = r.payment_id
+        ? `<button data-act="unpay" data-id="${r.payment_id}">Geri al</button>`
+        : amount ? `<button class="okb" data-act="pay" data-id="${r.student_id}">✓ Ödendi</button>` : '';
+      const wa = !r.payment_id && amount && r.parent_phone
+        ? `<a class="btn" target="_blank" href="${waLink(r.parent_phone, `Merhaba, ${r.name} için ${MONTHS_TR[Number(data.month.slice(5)) - 1]} ayı servis ücreti (${tl(amount)}) henüz görünmüyor. Bilginize.`)}">Hatırlat</a>` : '';
+      return `<tr><td><b>${escapeHtml(r.name)}</b></td><td>${escapeHtml(busName(r.bus_id))}</td>
+        <td>${escapeHtml(r.parent_name || '')}<div class="muted small">${escapeHtml(r.parent_phone || '')}</div></td>
+        <td class="mono">${amount ? tl(amount) : '–'}</td><td>${state}</td><td class="btns">${btn}${wa}</td></tr>`;
+    }).join('') || '<tr><td colspan="6" class="muted">Öğrenci yok</td></tr>');
+}
+$('payMonth').onchange = loadPayments;
+$('payBus').onchange = loadPayments;
+
+// --- Belgeler -----------------------------------------------------------------
+async function loadDocuments() {
+  if (!companyId) return;
+  const list = await api('GET', '/api/admin/documents');
+  loadDocuments.list = list;
+  $('docTable').innerHTML = `<tr><th>Servis</th><th>Belge</th><th>Bitiş</th><th>Durum</th><th></th></tr>` +
+    (list.map((d) => {
+      const n = daysLeft(d.expires_on);
+      const chip = n < 0 ? `<span class="chip bad">${-n} gün geçti</span>` : n <= 30 ? `<span class="chip warn">${n} gün kaldı</span>` : `<span class="chip ok">${n} gün</span>`;
+      return `<tr><td>${escapeHtml(d.bus_name || 'Genel')}</td><td><b>${escapeHtml(d.kind)}</b>${d.note ? `<div class="muted small">${escapeHtml(d.note)}</div>` : ''}</td>
+        <td class="mono">${new Date(d.expires_on + 'T12:00:00').toLocaleDateString('tr-TR')}</td><td>${chip}</td>
+        <td class="btns"><button data-act="editDoc" data-id="${d.id}">Düzenle</button><button class="danger" data-act="delDoc" data-id="${d.id}">Sil</button></td></tr>`;
+    }).join('') || '<tr><td colspan="5" class="muted">Henüz belge eklenmedi.</td></tr>');
+}
 
 // --- Firmalar (süper yönetici) ------------------------------------------
 async function loadCompanies() {
@@ -210,6 +321,7 @@ function setupForm(formId, url, titleEl, newTitle, onReset, after = load) {
 }
 const busForm = setupForm('busForm', '/api/admin/buses', 'busFormTitle', 'Yeni servis');
 const studentForm = setupForm('studentForm', '/api/admin/students', 'studentFormTitle', 'Yeni öğrenci', () => { pickMarker?.remove(); pickMarker = null; });
+const docForm = setupForm('docForm', '/api/admin/documents', 'docFormTitle', 'Yeni belge', null, async () => { await loadDocuments(); await load(); });
 const schoolForm = setupForm('schoolForm', '/api/admin/schools', 'schoolFormTitle', 'Yeni okul', () => { schoolPickMarker?.remove(); schoolPickMarker = null; });
 const companyForm = setupForm('companyForm', '/api/admin/companies', 'companyFormTitle', 'Yeni firma', () => {
   companyForm.elements.username.disabled = false;
@@ -280,6 +392,25 @@ document.body.addEventListener('click', async (e) => {
         if (!confirm(`${school.name} silinsin mi?`)) return;
         await api('DELETE', `/api/admin/schools/${id}`);
         break;
+      case 'delAnn':
+        if (!confirm('Duyuru veli ekranlarından kaldırılsın mı?')) return;
+        await api('DELETE', `/api/admin/announcements/${id}`);
+        return loadAnnouncements();
+      case 'pay':
+        await api('POST', '/api/admin/payments', { student_id: id, month: $('payMonth').value });
+        return loadPayments();
+      case 'unpay':
+        await api('DELETE', `/api/admin/payments/${id}`);
+        return loadPayments();
+      case 'editDoc':
+        fillForm(docForm, loadDocuments.list.find((d) => d.id === id));
+        $('docFormTitle').textContent = 'Belgeyi düzenle';
+        return;
+      case 'delDoc':
+        if (!confirm('Belge silinsin mi?')) return;
+        await api('DELETE', `/api/admin/documents/${id}`);
+        await loadDocuments();
+        break;
       case 'openCompany':
         store.set('companyId', String(id));
         location.reload();
@@ -326,7 +457,7 @@ async function load() {
 
 async function loadMe() {
   me = await api('GET', '/api/admin/me');
-  $('who').textContent = me.user.isSuper ? `${me.user.username} (süper yönetici)` : me.user.companyName || me.user.username;
+  $('who').textContent = me.user.isSuper ? `${me.user.username} · süper yönetici` : me.user.companyName || me.user.username;
   if (me.user.isSuper) {
     $('companiesTab').hidden = false;
     const sel = $('companySelect');
@@ -344,6 +475,7 @@ async function loadMe() {
 
 (async () => {
   $('attDate').value = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+  $('payMonth').value = $('attDate').value.slice(0, 7);
   await loadMe();
   if (!companyId) {
     $('noCompany').style.display = 'block';

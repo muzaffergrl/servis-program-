@@ -9,7 +9,7 @@ telefondan takip edebildiği sistem.
 |---|---|---|
 | Veli ekranı | `/v/<veli-linki>` | Veli: kalan dakika, harita, bindi/indi durumu, telefon bildirimi, "bugün gelmeyecek", 30 günlük geçmiş |
 | Şoför ekranı | `/d/<şoför-linki>` | Şoför: tur başlat/bitir, yoklama (bindi / binmedi / indi), telefondan konum |
-| Firma paneli | `/admin` | Servis firması: servis, öğrenci, okul, canlı harita, yoklama raporu, linkleri WhatsApp ile gönderme |
+| Firma paneli | `/admin` | Servis firması: canlı harita ve özet, yoklama raporu, duyuru, aidat takibi, araç belgeleri, servis/öğrenci/okul, linkleri WhatsApp ile gönderme |
 | Süper yönetici | `/admin` | Biz: firmaları ekleme, pasife alma, istediği firmanın paneline geçme |
 
 Her veliye kendi çocuğuna özel tahmin edilemez bir link verilir. Uygulama indirmek gerekmez.
@@ -104,10 +104,19 @@ Veli ekranında "Telefonuma bildirim gelsin" → telefon kilitliyken de bildirim
 - Servisin konumu yalnızca tur sırasında gösterilir.
 - Canlıya çıkmadan önce velilerden açık rıza metni alınmalı.
 
+## Ek özellikler
+
+- **Kesintiye dayanıklı:** Devam eden tur, yoklama ve bildirimler veritabanına yazılır; sunucu yeniden
+  başlarsa tur kaldığı yerden devam eder (dünden kalan tur devam ettirilmez).
+- **Öğrenen tahmin:** Son 30 günün biniş saatlerinden "Servis genelde 07:31'de kapınızda" (en az 3 gün kayıt gerekir).
+- **Duyurular:** Firma tüm velilere ya da tek servise duyuru gönderir; telefona bildirim gider, 7 gün veli ekranında kalır.
+- **Aidat:** Öğrenciye aylık ücret girilir, ödeyenler işaretlenir; bekleyenlere WhatsApp ile hatırlatma. Veli kendi ayının durumunu görür.
+- **Belgeler:** Muayene, sigorta, izin belgesi, ehliyet/SRC/psikoteknik bitiş tarihleri; 30 gün kala Canlı sekmesinde uyarı.
+- **Kardeşler:** Aynı veli telefonuyla kayıtlı kardeşler veli ekranının üstünde, tek dokunuşla geçilir.
+- **Günlük yedek:** Veritabanının kopyası her gün `data/backups` klasörüne alınır, son 14 gün saklanır (`BACKUP_KEEP_DAYS`).
+
 ## Yapılacaklar
 
 - [ ] Mevcut takip programının API'sini bağlamak
-- [ ] Zamanla öğrenen süre tahmini ("servis genelde 07:42'de gelir")
-- [ ] Ücret takibi, belge hatırlatma, toplu duyuru
-- [ ] Kardeşleri tek linkte gösterme, günlere göre farklı adres
+- [ ] Günlere göre farklı adres (ör. hafta sonu babada)
 - [ ] Sunucuya kurulum (HTTPS zorunlu: tarayıcı konum ve bildirim izni için)

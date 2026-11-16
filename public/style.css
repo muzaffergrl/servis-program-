@@ -1,51 +1,95 @@
+/* Servis Takip ortak tasarım: okul servisi sarısı + lacivert, renkli durum kartları */
 :root {
-  --bg: #f4f6f9;
-  --card: #ffffff;
-  --text: #1c2430;
-  --muted: #667085;
-  --line: #e3e7ee;
-  --primary: #f5a300;
-  --primary-ink: #3a2700;
-  --ok: #16a34a;
-  --warn: #d97706;
-  --danger: #dc2626;
-  --radius: 14px;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --bg: #EEF1F6; --card: #FFFFFF; --card-2: #F6F8FB; --text: #131A25; --muted: #5A6577; --line: #DCE2EA;
+  --primary: #F2B705; --primary-ink: #1C1600; --primary-soft: #FDF3CC;
+  --navy: #1F3A63; --navy-2: #2C5490; --navy-soft: #E3EAF5; --on-navy: #FFFFFF;
+  --ok: #17924F; --ok-soft: #DDF3E6; --warn: #C9711C; --warn-soft: #FBEBDB; --danger: #CF3B3B; --danger-soft: #FBE1E1;
+  --violet: #6D4BC7; --violet-soft: #ECE6FA; --teal: #0E8A8A; --teal-soft: #DDF2F1;
+  --radius: 16px;
+  --shadow: 0 10px 30px -18px rgba(20, 35, 60, .45);
+  --f-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --f-body: "Manrope", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-family: var(--f-body);
+  color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #11151b; --card: #1a2029; --text: #e8edf3; --muted: #98a2b3; --line: #2a323e;
+    --bg: #0D1219; --card: #161D29; --card-2: #1B2330; --text: #E7ECF3; --muted: #95A1B3; --line: #273243;
+    --primary: #F5C12B; --primary-soft: #3A3115;
+    --navy: #24426E; --navy-2: #2F5A94; --navy-soft: #1D2B40;
+    --ok: #3DCB80; --ok-soft: #173326; --warn: #F0A15A; --warn-soft: #3A2814; --danger: #F27474; --danger-soft: #3D1C1F;
+    --violet: #A78BF0; --violet-soft: #2A2342; --teal: #4FC9C9; --teal-soft: #163333;
+    --shadow: 0 10px 30px -18px rgba(0, 0, 0, .8);
+    color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
-body { margin: 0; background: var(--bg); color: var(--text); }
-h1, h2, h3 { margin: 0 0 .5rem; }
+body { margin: 0; background: var(--bg); color: var(--text); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+h1, h2, h3 { margin: 0 0 .4rem; font-family: var(--f-display); letter-spacing: -.01em; text-wrap: balance; }
 a { color: inherit; }
 .muted { color: var(--muted); }
 .small { font-size: .85rem; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.section-t { font-size: .74rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 800; color: var(--muted); margin: 0 0 10px; }
+
 button, .btn {
-  font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text);
-  border-radius: 10px; padding: 10px 14px; cursor: pointer; text-decoration: none; display: inline-flex;
-  align-items: center; justify-content: center; gap: 6px;
+  font: inherit; font-weight: 600; border: 1px solid var(--line); background: var(--card); color: var(--text);
+  border-radius: 12px; padding: 10px 14px; cursor: pointer; text-decoration: none; display: inline-flex;
+  align-items: center; justify-content: center; gap: 6px; transition: transform .08s, box-shadow .15s, background .15s;
 }
-button.primary, .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); font-weight: 600; }
-button.danger { color: var(--danger); }
-button:disabled { opacity: .5; cursor: default; }
-input, select { font: inherit; padding: 9px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--text); width: 100%; }
-label { display: block; font-size: .85rem; color: var(--muted); margin-bottom: 10px; }
-label > input, label > select { margin-top: 4px; }
+button:hover, .btn:hover { border-color: var(--muted); }
+button:active, .btn:active { transform: scale(.98); }
+button:focus-visible, .btn:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 3px solid var(--navy-2); outline-offset: 2px; }
+button.primary, .btn.primary { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); font-weight: 800; }
+button.navy, .btn.navy { background: var(--navy); color: var(--on-navy); border-color: var(--navy); }
+button.okb, .btn.okb { background: var(--ok); color: #fff; border-color: var(--ok); }
+button.danger { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+button:disabled { opacity: .5; cursor: default; transform: none; }
+input, select, textarea { font: inherit; padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); color: var(--text); width: 100%; }
+textarea { resize: vertical; min-height: 80px; }
+label { display: block; font-size: .82rem; font-weight: 600; color: var(--muted); margin-bottom: 10px; }
+label > input, label > select, label > textarea { margin-top: 4px; }
+
 .toast {
   position: fixed; left: 50%; top: 16px; transform: translateX(-50%); z-index: 2000;
-  background: var(--text); color: var(--bg); padding: 12px 18px; border-radius: 12px; max-width: calc(100% - 32px);
-  box-shadow: 0 8px 24px rgba(0,0,0,.2); font-weight: 600;
+  background: var(--text); color: var(--bg); padding: 12px 18px; border-radius: 14px; max-width: calc(100% - 32px);
+  box-shadow: 0 8px 24px rgba(0,0,0,.25); font-weight: 700; animation: toastIn .25s ease-out;
 }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, -8px); } }
+
+/* Plaka: Türkiye plakası gibi, solda mavi TR şeridi */
+.plate { display: inline-flex; align-items: stretch; border: 1.5px solid #111; border-radius: 5px; overflow: hidden; font-family: var(--f-mono); font-weight: 700; font-size: .78rem; background: #fff; color: #111; line-height: 1; white-space: nowrap; vertical-align: middle; }
+.plate b { background: #1D4FB8; color: #fff; font-size: .55rem; padding: 4px 3px 2px; display: flex; align-items: flex-end; }
+.plate span { padding: 4px 6px; }
+
+.chip { display: inline-flex; align-items: center; gap: 5px; font-size: .78rem; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; background: var(--card-2); color: var(--muted); }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.bad { background: var(--danger-soft); color: var(--danger); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.chip.nav { background: var(--navy-soft); color: var(--navy-2); }
+.chip.acc { background: var(--primary-soft); color: var(--text); }
+.chip.vio { background: var(--violet-soft); color: var(--violet); }
+@media (prefers-color-scheme: dark) { .chip.nav { color: #8DB5EE; } }
+
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); box-shadow: 0 0 0 4px var(--ok-soft); }
+.dot.warn { background: var(--warn); box-shadow: 0 0 0 4px var(--warn-soft); }
+
+/* Harita işaretleri */
 .bus-icon {
   background: var(--primary); color: var(--primary-ink); border-radius: 50%; border: 3px solid #fff;
-  display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: 0 2px 8px rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center; font-size: 18px; box-shadow: 0 0 0 6px rgba(242, 183, 5, .3), 0 3px 10px rgba(0,0,0,.35);
 }
-.pin-icon { font-size: 26px; line-height: 1; text-shadow: 0 1px 3px rgba(0,0,0,.4); }
-.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
-.dot.ok { background: var(--ok); }
-.dot.warn { background: var(--warn); }
+.pin-icon { font-size: 26px; line-height: 1; filter: drop-shadow(0 2px 2px rgba(0,0,0,.35)); }
+
+/* Renkli simge kutusu */
+.ico { width: 36px; height: 36px; border-radius: 11px; display: inline-grid; place-items: center; font-size: 1.1rem; flex: none; }
+.ico.y { background: var(--primary-soft); } .ico.g { background: var(--ok-soft); } .ico.b { background: var(--navy-soft); }
+.ico.r { background: var(--danger-soft); } .ico.v { background: var(--violet-soft); } .ico.t { background: var(--teal-soft); } .ico.o { background: var(--warn-soft); }
+
+.brandmark { width: 36px; height: 36px; border-radius: 11px; background: var(--primary); display: inline-grid; place-items: center; flex: none; }
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
