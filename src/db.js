@@ -99,6 +99,55 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- Veliye giden bildirimler (sunucu yeniden başlasa da "Bugün" listesi kaybolmasın)
+CREATE TABLE IF NOT EXISTS messages (
+  id         INTEGER PRIMARY KEY,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  date       TEXT NOT NULL,
+  at         INTEGER NOT NULL,
+  text       TEXT NOT NULL,
+  kind       TEXT,
+  urgent     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS messages_student ON messages(student_id, date);
+
+-- Devam eden turun anlık durumu (sunucu yeniden başlayınca kaldığı yerden devam)
+CREATE TABLE IF NOT EXISTS live_state (
+  bus_id     INTEGER PRIMARY KEY REFERENCES buses(id) ON DELETE CASCADE,
+  data       TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+-- Firmanın velilere duyuruları (tüm firma ya da tek servis)
+CREATE TABLE IF NOT EXISTS announcements (
+  id         INTEGER PRIMARY KEY,
+  company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  bus_id     INTEGER REFERENCES buses(id) ON DELETE CASCADE,
+  text       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+
+-- Aylık servis ücreti ödemeleri
+CREATE TABLE IF NOT EXISTS payments (
+  id         INTEGER PRIMARY KEY,
+  company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  student_id INTEGER NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+  month      TEXT NOT NULL,      -- 'YYYY-MM'
+  amount     INTEGER NOT NULL,
+  paid_at    INTEGER NOT NULL,
+  UNIQUE (student_id, month)
+);
+
+-- Araç ve şoför belgeleri (muayene, sigorta, ehliyet...) bitiş tarihleri
+CREATE TABLE IF NOT EXISTS documents (
+  id         INTEGER PRIMARY KEY,
+  company_id INTEGER NOT NULL REFERENCES companies(id) ON DELETE CASCADE,
+  bus_id     INTEGER REFERENCES buses(id) ON DELETE CASCADE,
+  kind       TEXT NOT NULL,
+  expires_on TEXT NOT NULL,     -- 'YYYY-MM-DD'
+  note       TEXT
+);
 `);
 
 // İlk sürümden kalan veritabanları için eksik sütunları ekle
@@ -108,6 +157,15 @@ function addColumn(table, column, def) {
 }
 for (const t of ['schools', 'buses', 'students']) addColumn(t, 'company_id', 'INTEGER REFERENCES companies(id) ON DELETE CASCADE');
 addColumn('students', 'notify_min', 'INTEGER NOT NULL DEFAULT 5');
+addColumn('students', 'monthly_fee', 'INTEGER'); // aylık servis ücreti (TL)
+
+export const DB_FILE = file;
+
+/** Telefon numarasını karşılaştırmak için sadeleştir (kardeş eşleştirme) */
+export const normPhone = (p) => {
+  const d = String(p || '').replace(/\D/g, '');
+  return d.length >= 10 ? d.slice(-10) : null;
+};
 
 export const newToken = (bytes = 12) => randomBytes(bytes).toString('base64url');
 

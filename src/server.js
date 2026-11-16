@@ -1,10 +1,11 @@
 import express from 'express';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { db, newToken, today, hashPassword, checkPassword, ensureSuperAdmin } from './db.js';
+import { db, newToken, today, hashPassword, checkPassword, ensureSuperAdmin, DB_FILE } from './db.js';
+import { mkdirSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import {
   events, startTrip, endTrip, updatePosition, setAbsent, setNotifyMin, parentView, busView, forgetBus,
-  markAttendance, dropAllAtSchool, boardAllAtSchool, attendanceHistory, HttpError,
+  markAttendance, dropAllAtSchool, boardAllAtSchool, attendanceHistory, HttpError, announce, saveBus,
 } from './tracker.js';
 import { simulate, stopSimulation, isSimulating } from './simulator.js';
 import { startExternalProvider } from './providers/external-api.js';
@@ -296,7 +297,15 @@ function adminState(companyId) {
     schools: db.prepare('SELECT * FROM schools WHERE company_id = ? ORDER BY name').all(companyId),
     buses,
     students: db.prepare('SELECT * FROM students WHERE company_id = ? ORDER BY bus_id, stop_order, id').all(companyId),
+    docAlerts: docAlerts(companyId),
+    today: today(),
   };
+}
+/** 30 gün içinde süresi dolacak ya da dolmuş belgeler */
+function docAlerts(companyId) {
+  const limit = today(new Date(Date.now() + 30 * 86400_000));
+  return db.prepare(`SELECT d.*, b.name AS bus_name FROM documents d LEFT JOIN buses b ON b.id = d.bus_id
+    WHERE d.company_id = ? AND d.expires_on <= ? ORDER BY d.expires_on`).all(companyId, limit);
 }
 app.get('/api/admin/state', (req, res) => res.json(adminState(needCompany(req))));
 app.get('/api/admin/stream', (req, res) => {
@@ -390,18 +399,20 @@ app.post('/api/admin/buses/:id/new-link', (req, res) => {
 function studentFields(b, c) {
   const busId = num(b.bus_id);
   owned('buses', busId, c);
-  return [required(str(b.name), 'Öğrenci adı'), busId, str(b.address), num(b.lat), num(b.lng), num(b.stop_order) ?? 0, str(b.parent_name), str(b.parent_phone)];
+  const fee = num(b.monthly_fee);
+  if (fee != null && (!Number.isFinite(fee) || fee < 0)) throw new HttpError(400, 'Aylık ücret geçersiz');
+  return [required(str(b.name), 'Öğrenci adı'), busId, str(b.address), num(b.lat), num(b.lng), num(b.stop_order) ?? 0, str(b.parent_name), str(b.parent_phone), fee];
 }
 app.post('/api/admin/students', (req, res) => {
   const c = needCompany(req);
-  const r = db.prepare(`INSERT INTO students (name, bus_id, address, lat, lng, stop_order, parent_name, parent_phone, company_id, parent_token)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...studentFields(req.body, c), c, newToken());
+  const r = db.prepare(`INSERT INTO students (name, bus_id, address, lat, lng, stop_order, parent_name, parent_phone, monthly_fee, company_id, parent_token)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(...studentFields(req.body, c), c, newToken());
   res.json({ id: Number(r.lastInsertRowid) });
 });
 app.put('/api/admin/students/:id', (req, res) => {
   const c = needCompany(req);
   owned('students', req.params.id, c);
-  db.prepare(`UPDATE students SET name = ?, bus_id = ?, address = ?, lat = ?, lng = ?, stop_order = ?, parent_name = ?, parent_phone = ? WHERE id = ?`)
+  db.prepare(`UPDATE students SET name = ?, bus_id = ?, address = ?, lat = ?, lng = ?, stop_order = ?, parent_name = ?, parent_phone = ?, monthly_fee = ? WHERE id = ?`)
     .run(...studentFields(req.body, c), req.params.id);
   res.json({ ok: true });
 });
@@ -428,6 +439,80 @@ app.get('/api/admin/attendance', (req, res) => {
   const map = new Map(students.map((s) => [s.id, { ...s, parentAbsent: s.absent_on === date, morning: {}, afternoon: {} }]));
   for (const r of rows) map.get(r.student_id)?.[r.trip_type] && (map.get(r.student_id)[r.trip_type][r.event] = r.at);
   res.json({ date, students: [...map.values()] });
+});
+
+// Duyurular
+app.get('/api/admin/announcements', (req, res) => {
+  res.json(db.prepare(`SELECT a.*, b.name AS bus_name FROM announcements a LEFT JOIN buses b ON b.id = a.bus_id
+    WHERE a.company_id = ? ORDER BY a.id DESC LIMIT 50`).all(needCompany(req)));
+});
+app.post('/api/admin/announcements', (req, res) => {
+  const c = needCompany(req);
+  const text = required(str(req.body.text), 'Duyuru metni');
+  if (text.length > 300) throw new HttpError(400, 'Duyuru en fazla 300 karakter olabilir');
+  const busId = num(req.body.bus_id);
+  owned('buses', busId, c);
+  res.json(announce(c, busId, text));
+});
+app.delete('/api/admin/announcements/:id', (req, res) => {
+  owned('announcements', req.params.id, needCompany(req));
+  db.prepare('DELETE FROM announcements WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Aidat / servis ücreti
+app.get('/api/admin/payments', (req, res) => {
+  const c = needCompany(req);
+  const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : today().slice(0, 7);
+  const rows = db.prepare(`SELECT s.id AS student_id, s.name, s.bus_id, s.parent_name, s.parent_phone, s.monthly_fee,
+      p.id AS payment_id, p.amount, p.paid_at
+    FROM students s LEFT JOIN payments p ON p.student_id = s.id AND p.month = ?
+    WHERE s.company_id = ? ORDER BY s.bus_id, s.stop_order, s.id`).all(month, c);
+  res.json({ month, rows });
+});
+app.post('/api/admin/payments', (req, res) => {
+  const c = needCompany(req);
+  const s = owned('students', num(req.body.student_id), c);
+  const month = /^\d{4}-\d{2}$/.test(req.body.month || '') ? req.body.month : today().slice(0, 7);
+  const amount = num(req.body.amount) ?? s.monthly_fee;
+  if (!Number.isFinite(amount) || amount <= 0) throw new HttpError(400, 'Tutar girin (öğrencinin aylık ücretini kaydedin)');
+  db.prepare(`INSERT INTO payments (company_id, student_id, month, amount, paid_at) VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(student_id, month) DO UPDATE SET amount = excluded.amount, paid_at = excluded.paid_at`).run(c, s.id, month, amount, Date.now());
+  res.json({ ok: true });
+});
+app.delete('/api/admin/payments/:id', (req, res) => {
+  owned('payments', req.params.id, needCompany(req));
+  db.prepare('DELETE FROM payments WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Belgeler (muayene, sigorta, ehliyet...)
+app.get('/api/admin/documents', (req, res) => {
+  res.json(db.prepare(`SELECT d.*, b.name AS bus_name FROM documents d LEFT JOIN buses b ON b.id = d.bus_id
+    WHERE d.company_id = ? ORDER BY d.expires_on`).all(needCompany(req)));
+});
+function docFields(b, c) {
+  const busId = num(b.bus_id);
+  owned('buses', busId, c);
+  const exp = str(b.expires_on);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(exp || '')) throw new HttpError(400, 'Bitiş tarihi gerekli');
+  return [busId, required(str(b.kind), 'Belge türü'), exp, str(b.note)];
+}
+app.post('/api/admin/documents', (req, res) => {
+  const c = needCompany(req);
+  const r = db.prepare('INSERT INTO documents (bus_id, kind, expires_on, note, company_id) VALUES (?, ?, ?, ?, ?)').run(...docFields(req.body, c), c);
+  res.json({ id: Number(r.lastInsertRowid) });
+});
+app.put('/api/admin/documents/:id', (req, res) => {
+  const c = needCompany(req);
+  owned('documents', req.params.id, c);
+  db.prepare('UPDATE documents SET bus_id = ?, kind = ?, expires_on = ?, note = ? WHERE id = ?').run(...docFields(req.body, c), req.params.id);
+  res.json({ ok: true });
+});
+app.delete('/api/admin/documents/:id', (req, res) => {
+  owned('documents', req.params.id, needCompany(req));
+  db.prepare('DELETE FROM documents WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
 });
 
 // --- Süper yönetici: firmalar ve kullanıcılar ----------------------------
@@ -483,7 +568,39 @@ app.use((err, req, res, next) => {
   res.status(status).json({ error: status >= 500 ? 'Sunucu hatası' : err.message, ...(err.extra || {}) });
 });
 
+// --- Günlük yedek ----------------------------------------------------------
+// Veritabanının günlük kopyası aynı diskteki backups klasörüne alınır, son 14 gün saklanır.
+// (Diskin kendisi bozulursa diye ayrıca haftada bir bilgisayara indirilmesi önerilir: KURULUM.md)
+const BACKUP_DIR = process.env.BACKUP_DIR || (DB_FILE === ':memory:' ? null : path.join(path.dirname(DB_FILE), 'backups'));
+const BACKUP_KEEP = Number(process.env.BACKUP_KEEP_DAYS || 14);
+export function backupNow() {
+  if (!BACKUP_DIR) return null;
+  mkdirSync(BACKUP_DIR, { recursive: true });
+  const file = path.join(BACKUP_DIR, `servis-${today()}.db`);
+  if (existsSync(file)) return file;
+  db.exec(`VACUUM INTO '${file.replace(/'/g, "''")}'`);
+  const old = readdirSync(BACKUP_DIR).filter((f) => /^servis-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort().slice(0, -BACKUP_KEEP);
+  for (const f of old) unlinkSync(path.join(BACKUP_DIR, f));
+  console.log('[yedek]', file);
+  return file;
+}
+function scheduleBackups() {
+  const run = () => { try { backupNow(); } catch (e) { console.error('[yedek] alınamadı:', e.message); } };
+  run();
+  setInterval(run, 60 * 60 * 1000).unref(); // saatte bir bakar, günde bir dosya
+}
+
+// Kapanırken son durumu kaydet (Railway yeniden başlatırken SIGTERM gönderir)
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => {
+    for (const b of db.prepare('SELECT id FROM buses').all()) saveBus(b.id);
+    process.exit(0);
+  });
+}
+process.on('unhandledRejection', (e) => console.error('[beklenmeyen hata]', e));
+
 app.listen(PORT, () => {
+  scheduleBackups();
   console.log(`Servis takip çalışıyor: http://localhost:${PORT}/admin`);
   startExternalProvider();
 });

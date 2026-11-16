@@ -117,3 +117,50 @@ test('şoför linkiyle yoklama, veli linkiyle takip', async () => {
   // Başka firmanın şoför linkiyle öğrenci yoklaması yapılamaz
   assert.equal((await d('POST', `/api/driver/yanlis-token/attendance`, { studentId: sid, event: 'boarded' })).status, 404);
 });
+
+test('duyuru, aidat, belge ve kardeş linki', async () => {
+  const sup = client(await login('patron', 'gizli123'));
+  await sup('POST', '/api/admin/companies', { name: 'Firma 5', username: 'f5', password: 'sifre555' });
+  await sup('POST', '/api/admin/companies', { name: 'Firma 6', username: 'f6', password: 'sifre666' });
+  const f3 = client(await login('f5', 'sifre555'));
+  const f4 = client(await login('f6', 'sifre666'));
+
+  const school = (await f3('POST', '/api/admin/schools', { name: 'Okul', lat: 41, lng: 29 })).body.id;
+  const bus = (await f3('POST', '/api/admin/buses', { name: 'S', school_id: school })).body.id;
+  const a = (await f3('POST', '/api/admin/students', { name: 'Ayşe', bus_id: bus, lat: 41.01, lng: 29.01, parent_phone: '0532 111 22 33', monthly_fee: 2500 })).body.id;
+  await f3('POST', '/api/admin/students', { name: 'Ali', bus_id: bus, lat: 41.01, lng: 29.01, parent_phone: '+90 532 111 2233' });
+  const state = (await f3('GET', '/api/admin/state')).body;
+  const ayse = state.students.find((s) => s.id === a);
+  assert.equal(ayse.monthly_fee, 2500);
+
+  // Duyuru veliye gider
+  const ann = await f3('POST', '/api/admin/announcements', { text: 'Yarın servis 10 dk erken' });
+  assert.equal(ann.body.sent, 2);
+  let pv = await (await fetch(`${base}/api/parent/${ayse.parent_token}`)).json();
+  assert.equal(pv.announcements[0].text, 'Yarın servis 10 dk erken');
+  assert.match(pv.messages[0].text, /10 dk erken/);
+  // Kardeş: telefon farklı yazılmış olsa da eşleşir
+  assert.deepEqual(pv.siblings.map((s) => s.name), ['Ali']);
+  // Aidat: önce ödenmedi, sonra ödendi
+  assert.equal(pv.fee.paid, false);
+  assert.equal((await f3('POST', '/api/admin/payments', { student_id: a })).status, 200);
+  pv = await (await fetch(`${base}/api/parent/${ayse.parent_token}`)).json();
+  assert.equal(pv.fee.paid, true);
+  assert.equal(pv.fee.amount, 2500);
+  const pays = (await f3('GET', '/api/admin/payments')).body;
+  assert.equal(pays.rows.find((r) => r.student_id === a).amount, 2500);
+
+  // Başka firma bu öğrencinin ödemesini işaretleyemez, duyuru da gönderemez
+  assert.equal((await f4('POST', '/api/admin/payments', { student_id: a })).status, 404);
+  assert.equal((await f4('POST', '/api/admin/announcements', { text: 'x', bus_id: bus })).status, 404);
+
+  // Belge: 30 gün içinde bitecekse uyarı listesinde çıkar
+  const soon = new Date(Date.now() + 10 * 86400_000).toISOString().slice(0, 10);
+  const later = new Date(Date.now() + 90 * 86400_000).toISOString().slice(0, 10);
+  await f3('POST', '/api/admin/documents', { bus_id: bus, kind: 'Araç muayenesi', expires_on: soon });
+  await f3('POST', '/api/admin/documents', { bus_id: bus, kind: 'Sigorta', expires_on: later });
+  assert.equal((await f3('POST', '/api/admin/documents', { bus_id: bus, kind: 'X' })).status, 400);
+  const st2 = (await f3('GET', '/api/admin/state')).body;
+  assert.deepEqual(st2.docAlerts.map((d) => d.kind), ['Araç muayenesi']);
+  assert.equal((await f4('GET', '/api/admin/documents')).body.length, 0);
+});

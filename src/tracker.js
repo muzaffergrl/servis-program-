@@ -1,6 +1,6 @@
 // Canlı servis durumu: konum, sefer, duraklar, yoklama, varış süreleri ve veli bildirimleri.
 import { EventEmitter } from 'node:events';
-import { db, today } from './db.js';
+import { db, today, normPhone } from './db.js';
 import { planRoute, projectOnRoute, haversine, MODE as ROUTING_MODE } from './routing.js';
 import { pushToStudent } from './push.js';
 
@@ -20,19 +20,64 @@ export const events = new EventEmitter();
 events.setMaxListeners(0);
 
 const state = new Map(); // busId -> { pos, trip }
-const messages = new Map(); // studentId -> [{at, text, kind}]
 
 function busState(busId) {
   if (!state.has(busId)) state.set(busId, { pos: null, trip: null });
   return state.get(busId);
 }
 
+// --- Kalıcılık: sunucu yeniden başlarsa tur kaldığı yerden devam eder ------
+const saveTimers = new Map();
+function serialize(st) {
+  const t = st.trip;
+  return JSON.stringify({
+    pos: st.pos,
+    trip: t && {
+      ...t, replanning: undefined, needsReplan: false,
+      riders: [...t.riders.entries()], removedStops: [...t.removedStops.entries()],
+    },
+  });
+}
+export function saveBus(busId) {
+  const st = state.get(busId);
+  if (!st) return;
+  try {
+    db.prepare(`INSERT INTO live_state (bus_id, data, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(bus_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at`).run(busId, serialize(st), Date.now());
+  } catch (e) { console.warn('[kayıt]', e.message); } // servis silinmiş olabilir
+}
+function scheduleSave(busId) {
+  if (saveTimers.has(busId)) return;
+  saveTimers.set(busId, setTimeout(() => { saveTimers.delete(busId); saveBus(busId); }, 500));
+}
+events.on('update', scheduleSave);
+
+/** Veritabanındaki son durumu belleğe yükler (açılışta ve testlerde) */
+export function loadState() {
+  state.clear();
+  const date = today();
+  for (const row of db.prepare('SELECT bus_id, data FROM live_state').all()) {
+    try {
+      const d = JSON.parse(row.data);
+      let trip = d.trip;
+      if (trip && trip.date !== date) trip = null; // dünden kalan tur devam ettirilmez
+      if (trip) {
+        trip.riders = new Map(trip.riders);
+        trip.removedStops = new Map(trip.removedStops);
+        trip.replanning = null;
+      }
+      state.set(row.bus_id, { pos: d.pos, trip });
+    } catch (e) { console.warn('[yükleme]', e.message); }
+  }
+  return state.size;
+}
+loadState();
+
 const hhmm = (ts) => new Date(ts).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', timeZone: process.env.TZ_NAME || 'Europe/Istanbul' });
 
 function notify(studentId, text, kind, { urgent = false } = {}) {
-  const list = messages.get(studentId) || [];
-  list.unshift({ at: Date.now(), text, kind, urgent });
-  messages.set(studentId, list.slice(0, 30));
+  db.prepare('INSERT INTO messages (student_id, date, at, text, kind, urgent) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(studentId, today(), Date.now(), text, kind, urgent ? 1 : 0);
   events.emit('notify', { studentId, text, kind, urgent });
   const s = db.prepare('SELECT parent_token FROM students WHERE id = ?').get(studentId);
   if (s) {
@@ -369,6 +414,22 @@ export function attendanceHistory(studentId, days = 30) {
   return [...byDate.values()];
 }
 
+/** Aynı veli telefonuna kayıtlı kardeşler (aynı firmada) */
+function siblingsOf(student) {
+  const p = normPhone(student.parent_phone);
+  if (!p || !student.company_id) return [];
+  return db.prepare('SELECT id, name, parent_token, parent_phone FROM students WHERE company_id = ? AND id != ?').all(student.company_id, student.id)
+    .filter((s) => normPhone(s.parent_phone) === p).map((s) => ({ name: s.name, token: s.parent_token }));
+}
+
+/** Bu ayın servis ücreti durumu */
+function feeOf(student) {
+  if (!student.monthly_fee) return null;
+  const month = thisMonth();
+  const p = db.prepare('SELECT amount, paid_at FROM payments WHERE student_id = ? AND month = ?').get(student.id, month);
+  return { month, amount: student.monthly_fee, paid: !!p, paidAt: p?.paid_at ?? null };
+}
+
 /** Veliye gösterilecek bilgi. Gizlilik: başka öğrencilerin adres/adı yok. */
 export function parentView(student) {
   const bus = student.bus_id && db.prepare('SELECT * FROM buses WHERE id = ?').get(student.bus_id);
@@ -410,7 +471,13 @@ export function parentView(student) {
     attendance: todayAttendance(student.id),
     // Servis konumu sadece sefer sırasında gösterilir
     busPos: active && st.pos ? { lat: st.pos.lat, lng: st.pos.lng, at: st.pos.at, stale: isStale(st.pos) } : null,
-    messages: messages.get(student.id) || [],
+    messages: db.prepare('SELECT at, text, kind, urgent FROM messages WHERE student_id = ? AND date = ? ORDER BY id DESC LIMIT 30')
+      .all(student.id, today()).map((m) => ({ ...m, urgent: !!m.urgent })),
+    usual: { morning: usualTime(student.id, 'morning'), afternoon: usualTime(student.id, 'afternoon') },
+    siblings: siblingsOf(student),
+    announcements: db.prepare(`SELECT text, created_at FROM announcements WHERE company_id = ? AND (bus_id IS NULL OR bus_id = ?)
+      AND created_at > ? ORDER BY id DESC LIMIT 3`).all(student.company_id, student.bus_id ?? -1, Date.now() - 7 * 86400_000),
+    fee: feeOf(student),
     now: Date.now(),
   };
 }
@@ -445,4 +512,40 @@ export function getTrip(busId) {
 
 export function forgetBus(busId) {
   state.delete(busId);
+  db.prepare('DELETE FROM live_state WHERE bus_id = ?').run(busId);
 }
+
+// --- Zamanla öğrenen tahmin: "servis genelde 07:42'de gelir" -------------
+const TZ = process.env.TZ_NAME || 'Europe/Istanbul';
+const minuteOfDay = (ts) => {
+  const [h, m] = new Date(ts).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: TZ }).split(':').map(Number);
+  return h * 60 + m;
+};
+/**
+ * Son 30 günde sabah servise binme (veya akşam eve iniş) saatlerinin ortancası.
+ * En az 3 gün kayıt yoksa null.
+ */
+export function usualTime(studentId, tripType) {
+  const event = tripType === 'morning' ? 'boarded' : 'dropped';
+  const since = today(new Date(Date.now() - 30 * 86400_000));
+  const rows = db.prepare(`SELECT MIN(at) AS at FROM attendance WHERE student_id = ? AND trip_type = ? AND event = ? AND date >= ? AND date < ? GROUP BY date`)
+    .all(studentId, tripType, event, since, today());
+  if (rows.length < 3) return null;
+  const mins = rows.map((r) => minuteOfDay(r.at)).sort((a, b) => a - b);
+  const mid = mins[Math.floor(mins.length / 2)];
+  return { time: `${String(Math.floor(mid / 60)).padStart(2, '0')}:${String(mid % 60).padStart(2, '0')}`, days: rows.length };
+}
+
+// --- Duyurular -------------------------------------------------------------
+/** Firmanın tüm velilerine (busId boşsa) ya da bir servisin velilerine duyuru gönderir */
+export function announce(companyId, busId, text) {
+  const id = Number(db.prepare('INSERT INTO announcements (company_id, bus_id, text, created_at) VALUES (?, ?, ?, ?)')
+    .run(companyId, busId ?? null, text, Date.now()).lastInsertRowid);
+  const students = busId
+    ? db.prepare('SELECT id FROM students WHERE company_id = ? AND bus_id = ?').all(companyId, busId)
+    : db.prepare('SELECT id FROM students WHERE company_id = ?').all(companyId);
+  for (const s of students) notify(s.id, `📢 ${text}`, 'announce');
+  return { id, sent: students.length };
+}
+
+const thisMonth = () => today().slice(0, 7);
